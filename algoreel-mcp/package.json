@@ -1,0 +1,20 @@
+{
+  "name": "algoreel-mcp",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "render:binary-search": "remotion render remotion/index.ts BinarySearch out/binary-search.mp4",
+    "studio": "remotion studio remotion/index.ts"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.286",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.286"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "typescript": "^5.6.3"
+  }
+}

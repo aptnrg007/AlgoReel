@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "topic": "binary search",
+  "algorithm": "binarySearch",
+  "input": { "array": [2, 5, 8, 12, 16, 23, 38], "target": 23 },
+  "targetDurationSec": 30,
+  "hook": "Why does binary search find anything in just 2 steps?",
+  "narration": [
+    { "beat": "intro", "text": "Binary search only works on a sorted array." },
+    { "beat": "op:0", "text": "Check the middle. Index 3 holds 12 — that's less than 23, so the answer is in the right half." },
+    { "beat": "op:1", "text": "Check the new middle. Index 5 holds 23. Found it." },
+    { "beat": "outro", "text": "Two comparisons for seven elements. Every step halves the problem — that's O(log n)." }
+  ],
+  "emphasis": ["SORTED", "HALF", "O(LOG N)"],
+  "complexity": { "time": "O(log n)", "space": "O(1)" },
+  "youtube": {
+    "title": "Binary Search in 30 Seconds",
+    "description": "How binary search finds a target in a sorted array in O(log n) time — visualized step by step.",
+    "tags": ["dsa", "algorithms", "binarysearch", "coding", "computerscience"]
+  }
+}
