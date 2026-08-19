@@ -1,13 +1,14 @@
+import type { BinarySearchInput } from "../algorithms/binarySearch";
+import type { BubbleSortInput } from "../algorithms/bubbleSort";
+
 export interface NarrationBeat {
   beat: "intro" | "outro" | `op:${number}`;
   text: string;
 }
 
-export interface StorySpec {
+interface StorySpecBase {
   version: 1;
   topic: string;
-  algorithm: "binarySearch";
-  input: { array: number[]; target: number };
   targetDurationSec: number;
   hook: string;
   narration: NarrationBeat[];
@@ -15,3 +16,9 @@ export interface StorySpec {
   complexity: { time: string; space: string };
   youtube: { title: string; description: string; tags: string[] };
 }
+
+// Discriminated on `algorithm` so each variant's `input` is typed to match
+// (PLAN.md §4). Adding an algorithm means adding a branch here.
+export type StorySpec =
+  | (StorySpecBase & { algorithm: "binarySearch"; input: BinarySearchInput })
+  | (StorySpecBase & { algorithm: "bubbleSort"; input: BubbleSortInput });

@@ -25,6 +25,18 @@ export function applyOperation(state: ArrayState, op: Operation): ArrayState {
       return { ...state, pointers: { ...state.pointers, [op.name]: op.index } };
     case "highlight": {
       const highlights = { ...state.highlights };
+      // "focus" is a spotlight on whatever's currently being compared, not
+      // a permanent mark — clear stale focus entries whenever a new one
+      // arrives, so cells a sort has already moved past go back to neutral
+      // instead of staying lit forever (only surfaced once bubbleSort's
+      // lack of "discard" exposed it — binarySearch always overwrote focus
+      // with discard shortly after, masking the same latent bug).
+      if (op.style === "focus") {
+        for (const key of Object.keys(highlights)) {
+          const idx = Number(key);
+          if (highlights[idx] === "focus") delete highlights[idx];
+        }
+      }
       for (const idx of op.indices) highlights[idx] = op.style;
       return { ...state, highlights };
     }
@@ -76,19 +88,42 @@ export function buildCheckpoints(ops: Operation[], startState: ArrayState): Arra
   return states;
 }
 
-// Groups operations by which narration beat they belong to. A new "op:N"
-// group starts at each focus highlight (the moment a new element comes
-// under scrutiny); everything before the first one is "intro".
-export function groupOperationsByBeat(operations: Operation[]): Map<string, Operation[]> {
-  const groups = new Map<string, Operation[]>();
-  let opIndex = -1;
+// Groups operations by which narration beat they belong to.
+//
+// A new "primary step" starts at each focus highlight (the moment a new
+// element comes under scrutiny); everything before the first one is
+// "intro". An algorithm like binarySearch has few primary steps and
+// narrates one per beat 1:1. An O(n^2) algorithm like bubbleSort can have
+// far more primary steps than an agent would ever narrate individually, so
+// primary steps are distributed evenly across however many "op:N" beats
+// the StorySpec actually declares (opBeatCount) — a beat may end up
+// covering several primary steps, each still animated as its own
+// checkpoint (see buildCheckpoints) within that beat's screen time.
+export function groupOperationsByBeat(operations: Operation[], opBeatCount: number): Map<string, Operation[]> {
+  const chunks: Operation[][] = [[]];
   for (const op of operations) {
     if (op.type === "highlight" && op.style === "focus") {
-      opIndex += 1;
+      chunks.push([]);
     }
-    const beat = opIndex === -1 ? "intro" : `op:${opIndex}`;
-    if (!groups.has(beat)) groups.set(beat, []);
-    groups.get(beat)!.push(op);
+    chunks[chunks.length - 1]!.push(op);
+  }
+  const [introOps, ...primarySteps] = chunks;
+
+  const groups = new Map<string, Operation[]>();
+  groups.set("intro", introOps!);
+
+  const n = Math.max(opBeatCount, 1);
+  const base = Math.floor(primarySteps.length / n);
+  const remainder = primarySteps.length - base * n;
+  let idx = 0;
+  for (let b = 0; b < n; b++) {
+    const count = base + (b < remainder ? 1 : 0);
+    const bucket: Operation[] = [];
+    for (let k = 0; k < count; k++) {
+      bucket.push(...primarySteps[idx]!);
+      idx++;
+    }
+    groups.set(`op:${b}`, bucket);
   }
   return groups;
 }

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "topic": "bubble sort",
+  "algorithm": "bubbleSort",
+  "input": { "array": [5, 2, 8, 1, 4] },
+  "targetDurationSec": 30,
+  "hook": "Why is bubble sort the algorithm everyone learns and no one uses?",
+  "narration": [
+    { "beat": "intro", "text": "Bubble sort repeatedly compares neighbors and swaps them when they're out of order." },
+    { "beat": "op:0", "text": "Pass one: sweep left to right — swap when the left is bigger. The largest value bubbles to the end." },
+    { "beat": "op:1", "text": "Pass two: the same sweep over what's left. Another big value settles into place." },
+    { "beat": "op:2", "text": "The remaining passes finish the job, shrinking the unsorted region until nothing needs to swap." },
+    { "beat": "outro", "text": "Ten comparisons and six swaps for five elements. That's O(n squared) — much slower than binary search." }
+  ],
+  "emphasis": ["SWAP", "BIGGER"],
+  "complexity": { "time": "O(n²)", "space": "O(1)" },
+  "youtube": {
+    "title": "Bubble Sort in 30 Seconds",
+    "description": "How bubble sort works: repeatedly compare and swap neighboring elements until the array is sorted. O(n²) time, O(1) space.",
+    "tags": ["dsa", "algorithms", "bubblesort", "sorting", "coding"]
+  }
+}

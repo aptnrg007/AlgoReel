@@ -1,4 +1,4 @@
-import { binarySearch } from "../src/algorithms/binarySearch";
+import { runAlgorithm } from "../src/algorithms";
 import type { StorySpec } from "../src/spec/types";
 import { applyOperation, buildCheckpoints, groupOperationsByBeat, INITIAL_STATE, type ArrayState } from "./primitives/state";
 import { estimateBeatFrames, HOOK_DURATION_SEC } from "./timing";
@@ -28,11 +28,12 @@ export interface Timeline {
 // agent never sees or invents this timeline — it only wrote the narration
 // beats; everything about *when* things happen is computed here.
 export function buildTimeline(spec: StorySpec, fps: number): Timeline {
-  const { operations } = binarySearch(spec.input);
-  const groups = groupOperationsByBeat(operations);
+  const { operations } = runAlgorithm(spec);
 
   const stepBeats = spec.narration.filter((n) => n.beat !== "outro");
   const outroBeat = spec.narration.find((n) => n.beat === "outro");
+  const opBeatCount = stepBeats.filter((n) => n.beat !== "intro").length;
+  const groups = groupOperationsByBeat(operations, opBeatCount);
 
   let state: ArrayState = INITIAL_STATE;
   const steps: TimelineStep[] = [];
