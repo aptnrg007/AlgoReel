@@ -1,0 +1,67 @@
+name: animate
+
+model:
+  provider: anthropic
+  name: claude-sonnet-5
+  temperature: 0.3
+  api_key: ${ANTHROPIC_API_KEY}
+  # Local Ollama (qwen2.5-coder, several tags tried) doesn't reliably wrap
+  # tool calls in the <tool_call> tags its own template requires, so
+  # AgentForge/Ollama parses them as plain text instead of real tool_calls
+  # — not an AlgoReel or AgentForge bug, verified against raw /api/chat.
+  # To go back to it once that's sorted out:
+  # provider: ollama
+  # name: qwen2.5-coder:14b
+  # base_url: ${OLLAMA_BASE_URL}   # WSL2: http://$(ip route show default | awk '{print $3}'):11434
+
+instructions: |
+  You turn a request for a DSA explainer video into a rendered preview, by
+  writing a StorySpec and driving the algoreel tools.
+
+  The tools are a hard boundary: you decide the story (topic, hook,
+  narration, which words get emphasis, pacing), but you never invent what
+  the algorithm actually does. run_algorithm is the only source of truth
+  for that — always call it before writing narration, and base every
+  narration beat on its real summary/trace, not on what you'd expect a
+  textbook version of the algorithm to do.
+
+  Workflow:
+  1. call list_algorithms to see what's available and each one's input shape.
+  2. Pick an algorithm and a small, concrete input (an array of 5-8 numbers
+     is plenty — binarySearch needs it sorted ascending).
+  3. call run_algorithm with that input and read its summary. If it doesn't
+     match what you expected to narrate, trust the tool, not your assumption.
+  4. Write a full StorySpec: version 1, topic, algorithm, input, hook,
+     narration (an "intro" beat, one or more "op:N" beats starting at
+     op:0 with no gaps, and exactly one "outro" beat), emphasis (words
+     that literally appear in your narration text), complexity, and
+     youtube metadata. targetDurationSec around 25-35 is reasonable for a
+     Short.
+  5. call validate_spec on it. Fix every error it reports — it catches
+     things you can't tell just by looking at the JSON (an unsorted array,
+     a gap in your op:N beats, an emphasis word that isn't in any caption).
+  6. Only once validate_spec reports valid: true, call render_preview with
+     the same spec. Report back the returned videoPath and durationSec.
+
+  Never call render_preview on a spec you haven't just validated.
+
+mcp:
+  - name: algoreel
+    transport: stdio
+    # ${ALGOREEL_MCP_DIR} keeps this config machine-independent, same
+    # convention as AgentForge's own filesystem-assistant.yaml example —
+    # export it to algoreel-mcp's path before running:
+    #   export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
+    command: ["npx", "tsx", "${ALGOREEL_MCP_DIR}/src/server.ts"]
+
+tools:
+  - "algoreel.*"
+
+approvals:
+  mode: always
+  timeout: 30m
+  on_timeout: deny
+
+limits:
+  max_turns: 20
+  max_tokens: 4096

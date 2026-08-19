@@ -14,6 +14,10 @@ import { Video } from "./Video";
 const compositions: Array<{ id: string; spec: StorySpec }> = [
   { id: "BinarySearch", spec: binarySearchSpec as StorySpec },
   { id: "BubbleSort", spec: bubbleSortSpec as StorySpec },
+  // Generic target for MCP-driven renders (src/server.ts's render_preview
+  // tool): the defaultProps spec here is just a placeholder, always
+  // overridden at render time via `--props=<path-to-{spec:...}.json>`.
+  { id: "Video", spec: binarySearchSpec as StorySpec },
 ];
 
 export const RemotionRoot: React.FC = () => {
