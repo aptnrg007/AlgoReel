@@ -1,7 +1,7 @@
 import React from "react";
 import { spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { CELL, COLORS, TYPE_SCALE } from "../template/tokens";
-import type { ArrayState } from "./state";
+import type { VisualState } from "./state";
 
 const CELL_COLOR: Record<"neutral" | "focus" | "found" | "dead", string> = {
   neutral: "#1a1f2b",
@@ -17,7 +17,7 @@ const TEXT_COLOR: Record<"neutral" | "focus" | "found" | "dead", string> = {
   dead: COLORS.neutralDim,
 };
 
-export const ArrayView: React.FC<{ state: ArrayState }> = ({ state }) => {
+export const ArrayView: React.FC<{ state: VisualState }> = ({ state }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const pop = spring({ frame, fps, config: { damping: 200 }, durationInFrames: 15 });

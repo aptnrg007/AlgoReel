@@ -63,11 +63,12 @@ cd algoreel-mcp
 npm install
 ```
 
-Render the two demo videos (no agent involved):
+Render the demo videos (no agent involved):
 
 ```
 npm run render:binary-search   # out/binary-search.mp4
 npm run render:bubble-sort     # out/bubble-sort.mp4
+npm run render:bfs             # out/bfs.mp4
 ```
 
 Run the MCP server standalone (for use by any MCP client, including
@@ -90,7 +91,13 @@ export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
 
 ## Algorithms
 
-Three chosen for visual variety, not difficulty (`PLAN.md` §10):
-`binarySearch` and `bubbleSort` are built; `bfs` is next, to prove the
-operation vocabulary extends to a graph/queue primitive without special
-cases either.
+Three chosen for visual variety, not difficulty (`PLAN.md` §10), and all
+three are built: `binarySearch`, `bubbleSort`, and `bfs`. Adding `bfs`
+extended the operation vocabulary by exactly one type — `graph`, the
+graph-shaped analog of `init` (declares the full node/edge set up front,
+the same way `init` gives array algorithms a fixed set of cells from frame
+0) — reusing the `visit`/`enqueue`/`dequeue`/`edge` operations that were
+already defined but unused. Rendering picks `ArrayView` or `GraphView`
+based on the spec's algorithm; both fold from the same operation log
+through the same `VisualState`, `buildTimeline`, and beat-grouping
+pipeline with no other special-casing.

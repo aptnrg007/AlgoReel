@@ -28,3 +28,8 @@ export const TYPE_SCALE = {
 // Fixed per-cell geometry — never resized based on element count. If an
 // array doesn't fit at this size, the fix is a shorter array, not a smaller cell.
 export const CELL = { size: 120, gap: 22, radius: 18 } as const;
+
+// Graph nodes sit evenly spaced around a fixed circle (GraphView) — same
+// "never resize per element count" discipline as CELL. If a graph doesn't
+// fit at this size, the fix is fewer nodes, not a smaller layout.
+export const NODE = { size: 96, radius: 380 } as const;

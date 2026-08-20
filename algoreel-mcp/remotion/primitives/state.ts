@@ -1,24 +1,46 @@
 import type { Operation } from "../../src/algorithms/types";
 import { splitPrimarySteps } from "../../src/spec/beats";
 
-export interface ArrayState {
+// One flat state bag covering every algorithm shape built so far — array
+// fields for binarySearch/bubbleSort, graph fields for bfs. Each rendering
+// primitive (ArrayView, GraphView) only reads the fields it cares about;
+// Video.tsx picks which one to mount based on spec.algorithm. Kept unified
+// (rather than a union type per algorithm shape) so Checkpoint/Timeline and
+// the beat-grouping/checkpoint-allocation math below stay exactly as
+// written for every algorithm — they never touch these fields directly.
+export interface VisualState {
   array: number[];
   pointers: Record<string, number>;
   highlights: Record<number, "focus" | "found" | "dead">;
   discarded: Set<number>;
+  nodes: string[];
+  edges: [string, string][];
+  nodeStatus: Record<string, "queued" | "current" | "visited">;
+  edgeStatus: Record<string, "active" | "used">;
 }
 
-export const INITIAL_STATE: ArrayState = {
+export const INITIAL_STATE: VisualState = {
   array: [],
   pointers: {},
   highlights: {},
   discarded: new Set(),
+  nodes: [],
+  edges: [],
+  nodeStatus: {},
+  edgeStatus: {},
 };
+
+// Undirected edges can be declared/traversed in either order — normalize to
+// one key so GraphView's lookups agree with whatever order applyOperation
+// stored a status under.
+export function edgeKey(a: string, b: string): string {
+  return [a, b].sort().join("::");
+}
 
 // The renderer's only job: fold operations into visual state. This must
 // handle every Operation variant (exhaustive switch) — adding an algorithm
 // should never require touching this file (PLAN.md §4).
-export function applyOperation(state: ArrayState, op: Operation): ArrayState {
+export function applyOperation(state: VisualState, op: Operation): VisualState {
   switch (op.type) {
     case "init":
       return { ...state, array: op.array };
@@ -53,11 +75,27 @@ export function applyOperation(state: ArrayState, op: Operation): ArrayState {
       array[op.j] = tmp;
       return { ...state, array };
     }
-    case "compare":
-    case "visit":
+    case "graph":
+      return { ...state, nodes: op.nodes, edges: op.edges };
     case "enqueue":
-    case "dequeue":
+      return { ...state, nodeStatus: { ...state.nodeStatus, [op.node]: "queued" } };
+    case "dequeue": {
+      const nodeStatus = { ...state.nodeStatus, [op.node]: "current" as const };
+      // "current" is a transient spotlight, the graph analog of a "focus"
+      // highlight — likewise, edges lit "active" by the previous step
+      // settle into "used" (still visible, just no longer the newest thing)
+      // once a new step begins.
+      const edgeStatus = { ...state.edgeStatus };
+      for (const key of Object.keys(edgeStatus)) {
+        if (edgeStatus[key] === "active") edgeStatus[key] = "used";
+      }
+      return { ...state, nodeStatus, edgeStatus };
+    }
+    case "visit":
+      return { ...state, nodeStatus: { ...state.nodeStatus, [op.node]: "visited" } };
     case "edge":
+      return { ...state, edgeStatus: { ...state.edgeStatus, [edgeKey(op.from, op.to)]: op.state } };
+    case "compare":
     case "done":
       return state;
     default: {
@@ -67,7 +105,7 @@ export function applyOperation(state: ArrayState, op: Operation): ArrayState {
   }
 }
 
-export function replay(operations: Operation[]): ArrayState {
+export function replay(operations: Operation[]): VisualState {
   return operations.reduce(applyOperation, INITIAL_STATE);
 }
 
@@ -75,8 +113,8 @@ export function replay(operations: Operation[]): ArrayState {
 // through (skipping ops like "compare" that don't change anything on
 // screen), so a beat can animate through its sub-steps instead of jumping
 // straight to the end state while its caption is still being read.
-export function buildCheckpoints(ops: Operation[], startState: ArrayState): ArrayState[] {
-  const states: ArrayState[] = [];
+export function buildCheckpoints(ops: Operation[], startState: VisualState): VisualState[] {
+  const states: VisualState[] = [];
   let state = startState;
   for (const op of ops) {
     const next = applyOperation(state, op);

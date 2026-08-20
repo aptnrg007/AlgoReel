@@ -37,6 +37,18 @@ function semanticErrors(spec: StorySpec): string[] {
     }
   }
 
+  if (spec.algorithm === "bfs") {
+    const { nodes, edges, start } = spec.input;
+    if (!nodes.includes(start)) {
+      errors.push(`input.start ("${start}") must be one of input.nodes`);
+    }
+    for (const [a, b] of edges) {
+      if (!nodes.includes(a) || !nodes.includes(b)) {
+        errors.push(`input.edges entry [${a}, ${b}] references a node not in input.nodes`);
+      }
+    }
+  }
+
   const outroCount = spec.narration.filter((n) => n.beat === "outro").length;
   if (outroCount !== 1) {
     errors.push(`narration must contain exactly one "outro" beat (found ${outroCount})`);

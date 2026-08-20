@@ -1,10 +1,10 @@
 import { runAlgorithm } from "../src/algorithms";
 import type { StorySpec } from "../src/spec/types";
-import { applyOperation, buildCheckpoints, groupOperationsByBeat, INITIAL_STATE, type ArrayState } from "./primitives/state";
+import { applyOperation, buildCheckpoints, groupOperationsByBeat, INITIAL_STATE, type VisualState } from "./primitives/state";
 import { estimateBeatFrames, HOOK_DURATION_SEC } from "./timing";
 
 export interface Checkpoint {
-  state: ArrayState;
+  state: VisualState;
   startFrame: number;
   durationInFrames: number;
 }
@@ -35,7 +35,7 @@ export function buildTimeline(spec: StorySpec, fps: number): Timeline {
   const opBeatCount = stepBeats.filter((n) => n.beat !== "intro").length;
   const groups = groupOperationsByBeat(operations, opBeatCount);
 
-  let state: ArrayState = INITIAL_STATE;
+  let state: VisualState = INITIAL_STATE;
   const steps: TimelineStep[] = [];
   const consumedKeys = new Set<string>();
 
@@ -69,7 +69,7 @@ export function buildTimeline(spec: StorySpec, fps: number): Timeline {
 
 // Splits a beat's frame budget evenly across its checkpoint states, giving
 // any remainder to the last checkpoint.
-function allocateCheckpoints(states: ArrayState[], totalDurationInFrames: number): Checkpoint[] {
+function allocateCheckpoints(states: VisualState[], totalDurationInFrames: number): Checkpoint[] {
   const base = Math.floor(totalDurationInFrames / states.length);
   const remainder = totalDurationInFrames - base * states.length;
   let startFrame = 0;

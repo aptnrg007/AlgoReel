@@ -5,6 +5,13 @@ export type Operation =
   | { type: "swap"; i: number; j: number }
   | { type: "highlight"; indices: number[]; style: "focus" | "found" | "dead" }
   | { type: "discard"; from: number; to: number }
+  // graph algorithms' analog of "init": declares the full node/edge set up
+  // front so the renderer can lay out even not-yet-visited nodes, the same
+  // way "init"'s array gives every algorithm a fixed set of cells from
+  // frame 0. Kept as its own type rather than folded into "init" because
+  // its payload shape (nodes/edges) is fundamentally different from an
+  // array, not just a variant of it.
+  | { type: "graph"; nodes: string[]; edges: [string, string][] }
   | { type: "visit"; node: string }
   | { type: "enqueue"; node: string }
   | { type: "dequeue"; node: string }

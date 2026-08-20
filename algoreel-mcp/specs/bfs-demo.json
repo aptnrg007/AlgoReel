@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "topic": "breadth-first search",
+  "algorithm": "bfs",
+  "input": {
+    "nodes": ["A", "B", "C", "D", "E", "F"],
+    "edges": [
+      ["A", "B"],
+      ["A", "C"],
+      ["B", "D"],
+      ["C", "D"],
+      ["C", "E"],
+      ["E", "F"]
+    ],
+    "start": "A"
+  },
+  "targetDurationSec": 35,
+  "hook": "How does BFS explore an entire graph without ever getting lost?",
+  "narration": [
+    { "beat": "intro", "text": "Breadth-first search explores a graph one layer at a time, visiting every neighbor before going deeper." },
+    { "beat": "op:0", "text": "We start at A and enqueue its neighbors B and C. Then we dequeue B — its only new neighbor is D, so D joins the queue too." },
+    { "beat": "op:1", "text": "Next we dequeue C, discovering E. Then D, whose neighbors are already queued — nothing new here." },
+    { "beat": "op:2", "text": "Finally E leads us to F, and once F is dequeued with no new neighbors, every node has been visited." },
+    { "beat": "outro", "text": "Six nodes, five edges, one pass — breadth-first search reaches every reachable node in the fewest possible layers." }
+  ],
+  "emphasis": ["QUEUE", "LAYER", "NEIGHBORS"],
+  "complexity": { "time": "O(V + E)", "space": "O(V)" },
+  "youtube": {
+    "title": "Breadth-First Search in 35 Seconds",
+    "description": "How BFS explores a graph layer by layer using a queue, visiting every reachable node in the fewest possible steps.",
+    "tags": ["dsa", "algorithms", "bfs", "graphs", "coding"]
+  }
+}

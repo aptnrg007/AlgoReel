@@ -1,3 +1,4 @@
+import type { BFSInput } from "../algorithms/bfs";
 import type { BinarySearchInput } from "../algorithms/binarySearch";
 import type { BubbleSortInput } from "../algorithms/bubbleSort";
 
@@ -21,4 +22,5 @@ interface StorySpecBase {
 // (PLAN.md §4). Adding an algorithm means adding a branch here.
 export type StorySpec =
   | (StorySpecBase & { algorithm: "binarySearch"; input: BinarySearchInput })
-  | (StorySpecBase & { algorithm: "bubbleSort"; input: BubbleSortInput });
+  | (StorySpecBase & { algorithm: "bubbleSort"; input: BubbleSortInput })
+  | (StorySpecBase & { algorithm: "bfs"; input: BFSInput });

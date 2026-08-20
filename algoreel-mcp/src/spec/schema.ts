@@ -38,12 +38,19 @@ export const bubbleSortInputSchema = z.object({
   array: z.array(z.number()).min(1),
 });
 
+export const bfsInputSchema = z.object({
+  nodes: z.array(z.string().min(1)).min(1),
+  edges: z.array(z.tuple([z.string().min(1), z.string().min(1)])),
+  start: z.string().min(1),
+});
+
 // Keyed the same way as src/algorithms/index.ts's ALGORITHMS registry, so
 // the MCP `run_algorithm` tool can validate a bare (algorithm, input) pair
 // without needing a full StorySpec around it.
 export const ALGORITHM_INPUT_SCHEMAS = {
   binarySearch: binarySearchInputSchema,
   bubbleSort: bubbleSortInputSchema,
+  bfs: bfsInputSchema,
 } as const;
 
 // Mirrors src/spec/types.ts's StorySpec. Kept as a separate zod schema
@@ -55,6 +62,7 @@ export const ALGORITHM_INPUT_SCHEMAS = {
 export const storySpecSchema = z.discriminatedUnion("algorithm", [
   z.object({ ...baseSpecShape, algorithm: z.literal("binarySearch"), input: binarySearchInputSchema }),
   z.object({ ...baseSpecShape, algorithm: z.literal("bubbleSort"), input: bubbleSortInputSchema }),
+  z.object({ ...baseSpecShape, algorithm: z.literal("bfs"), input: bfsInputSchema }),
 ]);
 
 export type StorySpecParsed = z.infer<typeof storySpecSchema>;

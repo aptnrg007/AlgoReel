@@ -1,4 +1,5 @@
 import { binarySearch, type BinarySearchInput } from "./binarySearch";
+import { bfs, type BFSInput } from "./bfs";
 import { bubbleSort, type BubbleSortInput } from "./bubbleSort";
 import type { AlgorithmResult } from "./types";
 import type { StorySpec } from "../spec/types";
@@ -14,6 +15,11 @@ export const ALGORITHMS = {
     description: "Sort an array by repeatedly swapping adjacent out-of-order elements.",
     inputHint: "{ array: number[] }",
   },
+  bfs: {
+    name: "bfs",
+    description: "Traverse a graph breadth-first from a start node, visiting nearest nodes first.",
+    inputHint: "{ nodes: string[], edges: [string, string][], start: string }",
+  },
 } as const;
 
 export type AlgorithmName = keyof typeof ALGORITHMS;
@@ -28,6 +34,8 @@ export function runAlgorithm(spec: StorySpec): AlgorithmResult {
       return binarySearch(spec.input);
     case "bubbleSort":
       return bubbleSort(spec.input);
+    case "bfs":
+      return bfs(spec.input);
     default: {
       const _exhaustive: never = spec;
       return _exhaustive;
@@ -39,12 +47,17 @@ export function runAlgorithm(spec: StorySpec): AlgorithmResult {
 // have a bare algorithm name + input — not a full StorySpec — and whose
 // input has already been validated against the matching zod schema
 // (src/spec/schema.ts) before this is called.
-export function runAlgorithmByName(algorithm: AlgorithmName, input: BinarySearchInput | BubbleSortInput): AlgorithmResult {
+export function runAlgorithmByName(
+  algorithm: AlgorithmName,
+  input: BinarySearchInput | BubbleSortInput | BFSInput,
+): AlgorithmResult {
   switch (algorithm) {
     case "binarySearch":
       return binarySearch(input as BinarySearchInput);
     case "bubbleSort":
       return bubbleSort(input as BubbleSortInput);
+    case "bfs":
+      return bfs(input as BFSInput);
     default: {
       const _exhaustive: never = algorithm;
       return _exhaustive;
