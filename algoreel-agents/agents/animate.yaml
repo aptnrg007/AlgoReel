@@ -1,18 +1,37 @@
 name: animate
 
 model:
-  provider: anthropic
-  name: claude-sonnet-5
+  provider: ollama
+  name: algoreel-llama
   temperature: 0.3
-  api_key: ${ANTHROPIC_API_KEY}
-  # Local Ollama (qwen2.5-coder, several tags tried) doesn't reliably wrap
-  # tool calls in the <tool_call> tags its own template requires, so
-  # AgentForge/Ollama parses them as plain text instead of real tool_calls
-  # — not an AlgoReel or AgentForge bug, verified against raw /api/chat.
-  # To go back to it once that's sorted out:
-  # provider: ollama
-  # name: qwen2.5-coder:14b
-  # base_url: ${OLLAMA_BASE_URL}   # WSL2: http://$(ip route show default | awk '{print $3}'):11434
+  # algoreel-llama = qwen3:8b with num_ctx raised to 24576 via
+  # ../Modelfile (Ollama defaults to 4096; qwen3 also emits a verbose
+  # thinking trace before every tool call, which eats context fast
+  # across a multi-turn StorySpec workflow — AgentForge's Ollama
+  # provider has no way to set num_ctx itself, internal/provider/
+  # ollama.go only sends temperature/num_predict, so the bump has to be
+  # baked into the model). Rebuild after editing the Modelfile:
+  #   ollama create algoreel-llama -f algoreel-agents/Modelfile
+  #
+  # Three weaker local models were tried and rejected first, each on a
+  # different axis — see the Modelfile for the full writeup:
+  # - qwen2.5-coder: never wraps tool calls in the <tool_call> tags its
+  #   own template requires, so AgentForge/Ollama parses them as plain
+  #   text instead of real tool_calls.
+  # - llama3.1:8b: emits real tool_calls but serializes nested arguments
+  #   (the spec, the array input) as Python-dict-style strings instead
+  #   of JSON, failing the MCP server's schema validation every time —
+  #   and fabricated a fake success afterward instead of retrying.
+  # - llama3-groq-tool-use: fills nested JSON arguments correctly, but
+  #   goes completely silent (empty content, no tool_calls) the moment a
+  #   tool name contains a dot — which every AgentForge MCP tool name
+  #   does (namespaced as "<server>.<tool>", non-configurable).
+  # qwen3 is the first one to get both requirements right at once.
+  # Verified against raw /api/chat in every case, not an AlgoReel or
+  # AgentForge bug. To use Anthropic instead:
+  # provider: anthropic
+  # name: claude-sonnet-5
+  # api_key: ${ANTHROPIC_API_KEY}
 
 instructions: |
   You turn a request for a DSA explainer video into a rendered preview, by

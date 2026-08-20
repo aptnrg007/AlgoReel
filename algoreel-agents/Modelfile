@@ -1,0 +1,17 @@
+# qwen3:8b is the only local model tried that gets both requirements
+# right at once: it reliably emits real, structured tool_calls (unlike
+# qwen2.5-coder, which never wraps calls in the <tool_call> tags its own
+# template requires) and fills nested object arguments correctly (unlike
+# llama3.1:8b, which serializes them as Python-dict-style strings) even
+# with a dotted, namespaced tool name like "algoreel.list_algorithms"
+# (unlike llama3-groq-tool-use, which goes silent -- empty content, no
+# tool_calls -- the moment a function name contains a dot; AgentForge's
+# MCP registry always namespaces as "<server>.<tool>", non-configurable,
+# see AgentForge internal/mcp/registry.go:57).
+#
+# num_ctx raised well past Ollama's 4096 default -- qwen3 also emits a
+# verbose thinking trace before every tool call/response, which eats
+# context fast across a multi-turn StorySpec workflow (list_algorithms ->
+# run_algorithm -> validate_spec [possibly several times] -> render_preview).
+FROM qwen3:8b
+PARAMETER num_ctx 24576

@@ -42,12 +42,19 @@ Following the phased plan in `PLAN.md` §9:
 - **Phase 1 — done.** Added `bubbleSort` with no new operation types and no
   special-casing in the renderer, confirming the template/timeline layer
   actually generalizes.
-- **Phase 2 — in progress.** `algoreel-mcp` is wrapped as an MCP server
-  (`src/server.ts`, five tools) and there's an `animate.yaml` agent to
-  drive it through AgentForge. Verified directly with a scripted MCP
-  client and with `agentforge run` connecting and discovering tools; the
-  live interactive `agentforge chat` run is pending a working model
-  backend (see `algoreel-agents/agents/animate.yaml`'s comments).
+- **Phase 2 — done.** `algoreel-mcp` is wrapped as an MCP server
+  (`src/server.ts`, five tools) and `animate.yaml` drives it through
+  AgentForge with every tool call gated for approval. Verified live,
+  end-to-end: `list_algorithms` → `run_algorithm` → a full StorySpec →
+  `validate_spec` (the agent self-corrected through several real
+  errors — a wrong `complexity` shape, an emphasis word missing from
+  the narration — before it validated clean) → `render_preview`,
+  producing an actual playable preview mp4. Running locally via Ollama
+  needed a model that gets two things right at once — real structured
+  tool calls *and* correctly nested JSON arguments even with a dotted,
+  namespaced tool name — which took three rejected models to find (see
+  `algoreel-agents/agents/animate.yaml`'s comments and
+  `algoreel-agents/Modelfile`).
 
 ## Quickstart
 
@@ -70,11 +77,13 @@ AgentForge):
 npx tsx src/server.ts
 ```
 
-Drive it through AgentForge — from the `AgentForge` repo, with
-`algoreel-mcp` built and a model backend configured (see
-`algoreel-agents/agents/animate.yaml` for Ollama vs Anthropic setup):
+Drive it through AgentForge — from the `AgentForge` repo, with Ollama
+running locally and the `algoreel-llama` model built from
+`algoreel-agents/Modelfile` (or see `animate.yaml`'s comments to switch
+to Anthropic instead):
 
 ```
+ollama create algoreel-llama -f /path/to/AlgoReel/algoreel-agents/Modelfile
 export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
 ./agentforge chat /path/to/AlgoReel/algoreel-agents/agents/animate.yaml
 ```
