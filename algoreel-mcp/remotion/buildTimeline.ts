@@ -35,9 +35,21 @@ export function buildTimeline(spec: StorySpec, fps: number): Timeline {
   const opBeatCount = stepBeats.filter((n) => n.beat !== "intro").length;
   const groups = groupOperationsByBeat(operations, opBeatCount);
 
+  // The "intro" group's operations (the array/graph declaration, initial
+  // pointers) must seed state before anything else renders, whether or not
+  // the spec actually narrates an explicit "intro" beat — a spec that
+  // jumps straight to "op:0" still needs the array or graph to exist by
+  // then, or its first checkpoint folds onto an empty INITIAL_STATE and
+  // renders nothing (found from a script.yaml-generated spec that omitted
+  // "intro" and silently produced a blank array for every op:N beat).
   let state: VisualState = INITIAL_STATE;
-  const steps: TimelineStep[] = [];
   const consumedKeys = new Set<string>();
+  if (!stepBeats.some((n) => n.beat === "intro")) {
+    for (const op of groups.get("intro") ?? []) state = applyOperation(state, op);
+    consumedKeys.add("intro");
+  }
+
+  const steps: TimelineStep[] = [];
 
   for (const beat of stepBeats) {
     const ops = groups.get(beat.beat) ?? [];
