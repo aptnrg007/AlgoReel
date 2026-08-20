@@ -1,4 +1,5 @@
 import type { Operation } from "../../src/algorithms/types";
+import { splitPrimarySteps } from "../../src/spec/beats";
 
 export interface ArrayState {
   array: number[];
@@ -100,14 +101,7 @@ export function buildCheckpoints(ops: Operation[], startState: ArrayState): Arra
 // covering several primary steps, each still animated as its own
 // checkpoint (see buildCheckpoints) within that beat's screen time.
 export function groupOperationsByBeat(operations: Operation[], opBeatCount: number): Map<string, Operation[]> {
-  const chunks: Operation[][] = [[]];
-  for (const op of operations) {
-    if (op.type === "highlight" && op.style === "focus") {
-      chunks.push([]);
-    }
-    chunks[chunks.length - 1]!.push(op);
-  }
-  const [introOps, ...primarySteps] = chunks;
+  const { introOps, primarySteps } = splitPrimarySteps(operations);
 
   const groups = new Map<string, Operation[]>();
   groups.set("intro", introOps!);

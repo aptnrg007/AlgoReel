@@ -11,6 +11,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 import { ALGORITHMS, runAlgorithmByName, type AlgorithmName } from "./algorithms/index";
+import { splitPrimarySteps } from "./spec/beats";
 import { ALGORITHM_INPUT_SCHEMAS } from "./spec/schema";
 import { validateSpec } from "./spec/validate";
 import type { StorySpec } from "./spec/types";
@@ -72,7 +73,7 @@ server.registerTool(
   "run_algorithm",
   {
     description:
-      "Run a deterministic algorithm on a given input and get back a summary of what happened, without writing a video. Useful for sanity-checking an input (e.g. the search actually finds the target) before writing narration around it.",
+      "Run a deterministic algorithm on a given input and get back a summary of what happened, without writing a video. Useful for sanity-checking an input (e.g. the search actually finds the target) before writing narration around it. The returned primaryStepCount is the maximum number of \"op:N\" narration beats the StorySpec can use — more than that and validate_spec will reject it.",
     inputSchema: {
       algorithm: z.enum(Object.keys(ALGORITHMS) as [AlgorithmName, ...AlgorithmName[]]),
       input: z.record(z.string(), z.unknown()),
@@ -98,9 +99,16 @@ server.registerTool(
     const opsPath = join(OPERATIONS_DIR, `${algorithm}-${randomUUID().slice(0, 8)}.json`);
     writeFileSync(opsPath, JSON.stringify(result.operations, null, 2));
 
+    // The narration's "op:N" beat count must not exceed this — a surplus
+    // beat gets no animation step and renders a frozen array (see
+    // validate_spec's matching check, src/spec/validate.ts). Surfacing it
+    // here lets the spec get written right the first time instead of
+    // discovering the ceiling through a validate_spec rejection.
+    const primaryStepCount = splitPrimarySteps(result.operations).primarySteps.length;
+
     return text(
       JSON.stringify(
-        { summary: result.summary, operationCount: result.operations.length, operationsPath: opsPath },
+        { summary: result.summary, operationCount: result.operations.length, primaryStepCount, operationsPath: opsPath },
         null,
         2,
       ),

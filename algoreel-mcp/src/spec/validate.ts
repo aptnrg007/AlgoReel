@@ -1,3 +1,5 @@
+import { runAlgorithm } from "../algorithms/index";
+import { splitPrimarySteps } from "./beats";
 import { storySpecSchema } from "./schema";
 import type { StorySpec } from "./types";
 
@@ -56,6 +58,14 @@ function semanticErrors(spec: StorySpec): string[] {
     }
   }
 
+  // Only meaningful once the spec is otherwise well-formed — in particular
+  // binarySearch's engine *throws* on an unsorted array, already reported
+  // above, and opIndices being non-consecutive makes "how many op:N beats"
+  // ambiguous to begin with.
+  if (errors.length === 0) {
+    errors.push(...primaryStepBudgetErrors(spec, opIndices.length));
+  }
+
   const allCaptionText = spec.narration.map((n) => n.text.toLowerCase()).join(" ");
   for (const word of spec.emphasis) {
     if (!allCaptionText.includes(word.toLowerCase())) {
@@ -64,4 +74,32 @@ function semanticErrors(spec: StorySpec): string[] {
   }
 
   return errors;
+}
+
+// A narration beat with no animation step behind it renders a caption over a
+// completely frozen array (remotion/primitives/state.ts, groupOperationsByBeat
+// distributes primary steps across op:N beats — surplus beats get none).
+// validate_spec is documented as free and safe to call, so this must never
+// throw across the MCP boundary even though runAlgorithm can (binarySearch on
+// an unsorted array) — that case is already unreachable here since the caller
+// only invokes this once earlier checks passed, but the try/catch keeps that
+// guarantee independent of call order.
+function primaryStepBudgetErrors(spec: StorySpec, opBeatCount: number): string[] {
+  let primaryStepCount: number;
+  try {
+    const { operations } = runAlgorithm(spec);
+    primaryStepCount = splitPrimarySteps(operations).primarySteps.length;
+  } catch {
+    return [];
+  }
+
+  if (opBeatCount > primaryStepCount) {
+    const overflow = Array.from({ length: opBeatCount - primaryStepCount }, (_, i) => `op:${primaryStepCount + i}`);
+    return [
+      `narration has ${opBeatCount} "op:N" beats but ${spec.algorithm} on this input produces only ` +
+        `${primaryStepCount} animation step${primaryStepCount === 1 ? "" : "s"} — beat${overflow.length === 1 ? "" : "s"} ` +
+        `${overflow.join(", ")} would render a frozen array. Use at most ${primaryStepCount} "op:N" beat${primaryStepCount === 1 ? "" : "s"}.`,
+    ];
+  }
+  return [];
 }

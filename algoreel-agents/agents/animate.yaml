@@ -55,7 +55,11 @@ instructions: |
      op:0 with no gaps, and exactly one "outro" beat), emphasis (words
      that literally appear in your narration text), complexity, and
      youtube metadata. targetDurationSec around 25-35 is reasonable for a
-     Short.
+     Short. Use AT MOST run_algorithm's returned primaryStepCount "op:N"
+     beats — every beat needs at least one animation step behind it, or
+     it renders a caption over a frozen array. Fewer beats than
+     primaryStepCount is fine (a beat can cover several steps); more is
+     always wrong.
   5. call validate_spec on it. Fix every error it reports — it catches
      things you can't tell just by looking at the JSON (an unsorted array,
      a gap in your op:N beats, an emphasis word that isn't in any caption).
