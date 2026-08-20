@@ -1,0 +1,416 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "topic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetDurationSec": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "hook": {
+          "type": "string",
+          "minLength": 1
+        },
+        "narration": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "beat": {
+                "type": "string",
+                "pattern": "^(intro|outro|op:\\d+)$"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "beat",
+              "text"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "emphasis": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "complexity": {
+          "type": "object",
+          "properties": {
+            "time": {
+              "type": "string",
+              "minLength": 1
+            },
+            "space": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "time",
+            "space"
+          ],
+          "additionalProperties": false
+        },
+        "youtube": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tags": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "title",
+            "description",
+            "tags"
+          ],
+          "additionalProperties": false
+        },
+        "algorithm": {
+          "type": "string",
+          "const": "binarySearch"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "array": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "target": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "array",
+            "target"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "topic",
+        "targetDurationSec",
+        "hook",
+        "narration",
+        "emphasis",
+        "complexity",
+        "youtube",
+        "algorithm",
+        "input"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "topic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetDurationSec": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "hook": {
+          "type": "string",
+          "minLength": 1
+        },
+        "narration": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "beat": {
+                "type": "string",
+                "pattern": "^(intro|outro|op:\\d+)$"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "beat",
+              "text"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "emphasis": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "complexity": {
+          "type": "object",
+          "properties": {
+            "time": {
+              "type": "string",
+              "minLength": 1
+            },
+            "space": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "time",
+            "space"
+          ],
+          "additionalProperties": false
+        },
+        "youtube": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tags": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "title",
+            "description",
+            "tags"
+          ],
+          "additionalProperties": false
+        },
+        "algorithm": {
+          "type": "string",
+          "const": "bubbleSort"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "array": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          },
+          "required": [
+            "array"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "topic",
+        "targetDurationSec",
+        "hook",
+        "narration",
+        "emphasis",
+        "complexity",
+        "youtube",
+        "algorithm",
+        "input"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "topic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetDurationSec": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "hook": {
+          "type": "string",
+          "minLength": 1
+        },
+        "narration": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "beat": {
+                "type": "string",
+                "pattern": "^(intro|outro|op:\\d+)$"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "beat",
+              "text"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "emphasis": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "complexity": {
+          "type": "object",
+          "properties": {
+            "time": {
+              "type": "string",
+              "minLength": 1
+            },
+            "space": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "time",
+            "space"
+          ],
+          "additionalProperties": false
+        },
+        "youtube": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tags": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "title",
+            "description",
+            "tags"
+          ],
+          "additionalProperties": false
+        },
+        "algorithm": {
+          "type": "string",
+          "const": "bfs"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "nodes": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                ]
+              }
+            },
+            "start": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "nodes",
+            "edges",
+            "start"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "topic",
+        "targetDurationSec",
+        "hook",
+        "narration",
+        "emphasis",
+        "complexity",
+        "youtube",
+        "algorithm",
+        "input"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

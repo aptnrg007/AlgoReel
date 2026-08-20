@@ -7,6 +7,7 @@
     "render:binary-search": "remotion render remotion/index.ts BinarySearch out/binary-search.mp4",
     "render:bubble-sort": "remotion render remotion/index.ts BubbleSort out/bubble-sort.mp4",
     "render:bfs": "remotion render remotion/index.ts Bfs out/bfs.mp4",
+    "generate:schema": "tsx scripts/generate-story-spec-schema.ts",
     "studio": "remotion studio remotion/index.ts"
   },
   "dependencies": {

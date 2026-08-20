@@ -1,0 +1,132 @@
+# STATUS: not yet reliable on algoreel-llama (qwen3:8b). Unlike
+# animate.yaml's mostly-mechanical job, this one asks the model to do
+# open-ended generative authoring (a full StorySpec from a bare topic) and
+# hold a multi-round self-correction discipline at the same time, and
+# qwen3 isn't consistent at that combination: across repeated single-topic
+# test runs it variously skipped validate_spec, got stuck in an
+# unproductive retry loop misplacing targetDurationSec until max_turns,
+# and once gave an empty final answer. See ../../PLAN.md §8, which
+# recommends Claude for this agent specifically — that's the fix once
+# billing allows; the "provider: anthropic" block below is ready to go.
+# Kept and documented rather than deleted: the config, instructions, and
+# schema-generation pipeline are all real, tested, working pieces on their
+# own — only the "does qwen3 reliably finish this task" question is open.
+name: script
+
+model:
+  provider: ollama
+  name: algoreel-llama
+  temperature: 0.3
+  # Reuses the same qwen3:8b-based model animate.yaml already proved
+  # reliable for structured tool use — see animate.yaml's comments and
+  # ../Modelfile for why (real tool_calls, correctly nested JSON args, and
+  # a dotted namespaced tool name doesn't break it, unlike the other local
+  # models tried). PLAN.md §8 recommends Claude here instead ("needs to
+  # write well"); switch to that once billing allows:
+  # provider: anthropic
+  # name: claude-sonnet-5
+  # api_key: ${ANTHROPIC_API_KEY}
+
+instructions: |
+  HARD RULE, before anything else: you may NEVER give a final text answer
+  in this conversation until a validate_spec tool call has returned
+  valid: true. Not on your first turn, not "because you're confident it's
+  already correct" — always call validate_spec on your draft and see
+  valid: true with your own eyes first. A JSON document that merely
+  matches the schema but skipped validate_spec is a failed attempt, even
+  if every field looks right. This matters because validate_spec catches
+  real mistakes a schema cannot see: it actually runs the algorithm, so it
+  knows exactly how many animation steps exist and whether your narration
+  or emphasis words match what really happens — you do not, until you ask it.
+
+  You turn a topic into a complete StorySpec for a DSA explainer Short.
+  You decide the story: which algorithm best fits the topic, a concrete
+  input, the hook, the narration beats, which words get emphasis, and the
+  YouTube metadata. You never invent what the algorithm actually does —
+  validate_spec is the only source of truth for that.
+
+  Required steps, in order:
+  1. Call list_algorithms.
+  2. Pick the algorithm that best matches the topic and a small, concrete
+     input (5-8 numbers is plenty; binarySearch needs it sorted ascending;
+     bfs needs nodes/edges/start).
+  3. Draft a full StorySpec matching this exact top-level shape — copy this
+     structure, don't nest fields anywhere other than shown here (a common
+     mistake is nesting targetDurationSec inside youtube; it belongs at the
+     top level, as a sibling of youtube, not inside it):
+     {
+       "version": 1,
+       "topic": "...",
+       "targetDurationSec": 30,
+       "hook": "...",
+       "narration": [{ "beat": "intro", "text": "..." }, ...],
+       "emphasis": ["...", "..."],
+       "complexity": { "time": "...", "space": "..." },
+       "youtube": { "title": "...", "description": "...", "tags": ["..."] },
+       "algorithm": "...",
+       "input": { ... }
+     }
+     Two rules the schema itself cannot enforce:
+     - "op:N" beats MUST start at op:0 and increase one at a time with no
+       gaps: op:0, op:1, op:2, ... — never op:1, op:2 (missing op:0) and
+       never op:0, op:2 (skipping op:1). When in doubt, write fewer beats.
+     - Every string in "emphasis" must appear character-for-character
+       (case-insensitive) inside your narration text somewhere — prefer
+       single words you're certain you used, over invented phrases.
+  4. Call validate_spec on that draft — even a rough one, immediately,
+     as your very next tool call after drafting it. Do not skip this.
+  5. Read the errors. Fix every one, including ones a JSON Schema can't
+     express: an unsorted array, more "op:N" beats than the algorithm has
+     real animation steps (use at most the primaryStepCount validate_spec
+     names), an emphasis word that isn't literally in any narration text.
+  6. Call validate_spec again on the fixed version. Repeat step 5-6 until
+     it returns valid: true.
+  7. Only then, give your final answer: the StorySpec JSON and nothing
+     else — no prose, no markdown fences, no explanation.
+
+mcp:
+  - name: algoreel
+    transport: stdio
+    # ${ALGOREEL_MCP_DIR} keeps this config machine-independent — export it
+    # to algoreel-mcp's path before running:
+    #   export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
+    command: ["npx", "tsx", "${ALGOREEL_MCP_DIR}/src/server.ts"]
+
+tools:
+  - "algoreel.list_algorithms"
+  - "algoreel.validate_spec"
+
+approvals:
+  mode: annotated
+  auto_approve: ["algoreel.list_algorithms", "algoreel.validate_spec"]
+  # Unlike animate.yaml, both tools here are pure and side-effect-free —
+  # list_algorithms is a static lookup, validate_spec never renders or
+  # writes a preview file — so there's nothing for a human to catch by
+  # gating them.
+
+# Deliberately NOT using AgentForge's output.schema feature here, even
+# though it exists for exactly this job (auto-validate + auto-retry a
+# final JSON answer against a schema — see algoreel-mcp/scripts/
+# generate-story-spec-schema.ts, which still generates the schema file at
+# ./schemas/story-spec.json for whenever this is revisited on Anthropic).
+# Measured directly in this session: with output.schema present, qwen3
+# reliably skipped calling validate_spec and jumped straight to a final
+# answer every time (3 different instruction phrasings, always the same
+# result) — almost certainly because AgentForge auto-appends "Your final
+# response must be a single JSON document conforming exactly to the
+# following JSON Schema" (internal/schema/extract.go) as the very last
+# thing in the system prompt, after these instructions, and a small model
+# weights that recency over an earlier "call validate_spec first" rule.
+# Removing output.schema fixed it immediately — same behavior animate.yaml
+# already relies on (also no output.schema, also reliably calls
+# validate_spec several times). If this switches to Anthropic, restore:
+# output:
+#   schema: ./schemas/story-spec.json
+#   on_invalid: retry
+#   max_retries: 3
+
+limits:
+  max_turns: 25     # room for several validate_spec correction rounds —
+                     # qwen3 typically needs more than a stronger model would
+  max_tokens: 6144   # qwen3's thinking trace alone can run past 2500
+                      # tokens before it even starts the real answer
