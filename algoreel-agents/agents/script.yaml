@@ -1,31 +1,53 @@
-# STATUS: not yet reliable on algoreel-llama (qwen3:8b). Unlike
-# animate.yaml's mostly-mechanical job, this one asks the model to do
-# open-ended generative authoring (a full StorySpec from a bare topic) and
-# hold a multi-round self-correction discipline at the same time, and
-# qwen3 isn't consistent at that combination: across repeated single-topic
-# test runs it variously skipped validate_spec, got stuck in an
-# unproductive retry loop misplacing targetDurationSec until max_turns,
-# and once gave an empty final answer. See ../../PLAN.md §8, which
-# recommends Claude for this agent specifically — that's the fix once
-# billing allows; the "provider: anthropic" block below is ready to go.
-# Kept and documented rather than deleted: the config, instructions, and
-# schema-generation pipeline are all real, tested, working pieces on their
-# own — only the "does qwen3 reliably finish this task" question is open.
+# STATUS: running on Gemini (gemini-3.7-flash) via AgentForge's native
+# gemini provider. This is the fix PLAN.md §8 called for: algoreel-llama
+# (qwen3:8b) is real and reliable for animate.yaml's mechanical job, but
+# this agent does open-ended generative authoring (a full StorySpec from a
+# bare topic) while holding a multi-round self-correction discipline, and
+# qwen3 measurably isn't consistent at that combination — across repeated
+# single-topic test runs it variously skipped validate_spec, got stuck in
+# an unproductive retry loop misplacing targetDurationSec until max_turns,
+# and once gave an empty final answer.
+#
+# Originally wired through AgentForge's openai provider against Gemini's
+# OpenAI-compat endpoint (same free tier, zero AgentForge changes needed).
+# That broke on the second turn of every tool-calling run: Gemini's
+# thinking models attach an opaque thoughtSignature to functionCall parts
+# and 400 if a later turn replays one without it, and the openai
+# provider's wire structs had nowhere to carry it. Fixed by adding a real
+# gemini provider to AgentForge (agentforge/internal/provider/gemini.go)
+# against generateContent directly, where the signature is an ordinary
+# part field — see that repo's "Add native Gemini provider" commit.
+#
+# Anthropic (claude-sonnet-5) and xAI Grok are both viable drop-in
+# alternatives if Gemini's quality or free-tier limits become a problem —
+# see the commented blocks below, same five-line shape either way.
 name: script
 
 model:
-  provider: ollama
-  name: algoreel-llama
+  provider: gemini
+  # gemini-3.7-flash's free tier is capped at 20 requests/day and this
+  # session burned through it during testing — gemini-flash-lite-latest
+  # (currently gemini-3.5-flash-lite) has a separate per-model quota
+  # bucket that was still available. Swap back to a non-lite Flash if
+  # authoring quality needs it and the daily quota has reset.
+  name: gemini-flash-lite-latest
+  api_key: ${GOOGLE_API_KEY}
   temperature: 0.3
-  # Reuses the same qwen3:8b-based model animate.yaml already proved
-  # reliable for structured tool use — see animate.yaml's comments and
-  # ../Modelfile for why (real tool_calls, correctly nested JSON args, and
-  # a dotted namespaced tool name doesn't break it, unlike the other local
-  # models tried). PLAN.md §8 recommends Claude here instead ("needs to
-  # write well"); switch to that once billing allows:
+  # Alternatives, same config shape — switch by commenting/uncommenting:
   # provider: anthropic
   # name: claude-sonnet-5
   # api_key: ${ANTHROPIC_API_KEY}
+  #
+  # provider: openai
+  # base_url: https://api.x.ai/v1
+  # name: <xAI model id>
+  # api_key: ${XAI_API_KEY}
+  #
+  # provider: ollama
+  # name: algoreel-llama
+  # (qwen3:8b, reliable for animate.yaml's mechanical job — see
+  # animate.yaml's comments and ../Modelfile — but not for this agent's
+  # open-ended authoring task, per the STATUS note above)
 
 instructions: |
   HARD RULE, before anything else: you may NEVER give a final text answer
@@ -119,7 +141,9 @@ approvals:
 # weights that recency over an earlier "call validate_spec first" rule.
 # Removing output.schema fixed it immediately — same behavior animate.yaml
 # already relies on (also no output.schema, also reliably calls
-# validate_spec several times). If this switches to Anthropic, restore:
+# validate_spec several times). Worth an A/B now that a stronger model is
+# configured — restore this and re-run; keep it only if validate_spec
+# discipline survives:
 # output:
 #   schema: ./schemas/story-spec.json
 #   on_invalid: retry

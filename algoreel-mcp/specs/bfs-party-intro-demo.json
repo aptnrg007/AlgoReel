@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "topic": "Shortest path between strangers at a party",
+  "targetDurationSec": 30,
+  "hook": "How many introductions to connect two strangers at a party?",
+  "narration": [
+    {
+      "beat": "intro",
+      "text": "How many introductions to connect two strangers at a party?"
+    },
+    {
+      "beat": "op:0",
+      "text": "Start at our person A."
+    },
+    {
+      "beat": "op:1",
+      "text": "Check neighbors B and E."
+    },
+    {
+      "beat": "op:2",
+      "text": "Move to B and find C."
+    },
+    {
+      "beat": "op:3",
+      "text": "Move to E and find D."
+    },
+    {
+      "beat": "op:4",
+      "text": "Reach target D with the fewest steps!"
+    },
+    {
+      "beat": "outro",
+      "text": "That is how we find the fewest introductions."
+    }
+  ],
+  "emphasis": [
+    "strangers",
+    "party",
+    "fewest",
+    "introductions"
+  ],
+  "complexity": {
+    "time": "O(V + E)",
+    "space": "O(V + E)"
+  },
+  "youtube": {
+    "title": "Fewest Introductions Between Strangers",
+    "description": "Learn how breadth-first search finds the shortest path of introductions between two strangers at a party.",
+    "tags": [
+      "bfs",
+      "algorithms",
+      "graphs",
+      "party"
+    ]
+  },
+  "algorithm": "bfs",
+  "input": {
+    "nodes": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E"
+    ],
+    "edges": [
+      ["A", "B"],
+      ["B", "C"],
+      ["C", "D"],
+      ["A", "E"],
+      ["E", "D"]
+    ],
+    "start": "A"
+  }
+}
