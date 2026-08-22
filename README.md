@@ -1,5 +1,7 @@
 # AlgoReel
 
+![AlgoReel](AlgoReel.png)
+
 An autonomous content pipeline that turns a DSA topic into a rendered
 explainer Short — an agent writes the story, deterministic TypeScript runs
 the algorithm and drives the animation. Built on
@@ -55,6 +57,31 @@ Following the phased plan in `PLAN.md` §9:
   namespaced tool name — which took three rejected models to find (see
   `algoreel-agents/agents/animate.yaml`'s comments and
   `algoreel-agents/Modelfile`).
+- **Phase 3 — verified live, not yet at PLAN.md §9's full bar.**
+  `script.yaml` (topic → StorySpec) needs open-ended authoring *and*
+  multi-round self-correction discipline at once — the one combination
+  `algoreel-llama` (qwen3:8b) measurably couldn't hold, across repeated
+  runs skipping `validate_spec`, looping unproductively, or answering
+  empty. Fixed by routing it to Google AI Studio's free-tier Gemini
+  instead of a paid API, via a **new native `gemini` provider added to
+  AgentForge** (`internal/provider/gemini.go`) rather than its existing
+  OpenAI-compat route — Gemini's thinking models attach an opaque
+  `thoughtSignature` to tool calls that the generic OpenAI provider had
+  nowhere to carry, breaking every multi-turn tool loop on the second
+  turn; a second fix sanitizes tool schemas, since Gemini's function
+  declarations reject standard JSON Schema keywords
+  (`additionalProperties`, `propertyNames`, `$schema`) that a real MCP
+  tool schema actually emits. Both confirmed against the live API, not
+  just unit tests. Ran end-to-end on a topic outside the existing demo
+  set: the agent picked `bfs` on its own from an indirect description (no
+  algorithm named in the prompt), called `validate_spec` three times
+  fixing real errors, and only then answered — see
+  `algoreel-mcp/specs/bfs-party-intro-demo.json`. One run doesn't clear
+  PLAN.md §9's five-consecutive-topic exit bar yet, but it cleanly avoids
+  every qwen3 failure mode above. Also fixed along the way: `animate.yaml`
+  was missing the same "`targetDurationSec` is a sibling of `youtube`, not
+  nested inside it" warning `script.yaml` already had, which was sending
+  qwen3 into the identical unproductive loop on the render side.
 
 ## Quickstart
 
@@ -87,6 +114,18 @@ to Anthropic instead):
 ollama create algoreel-llama -f /path/to/AlgoReel/algoreel-agents/Modelfile
 export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
 ./agentforge chat /path/to/AlgoReel/algoreel-agents/agents/animate.yaml
+```
+
+Turn a bare topic into a validated StorySpec — `script.yaml` runs on
+Google AI Studio's free-tier Gemini via AgentForge's native `gemini`
+provider (get a key at https://aistudio.google.com/apikey; `script.yaml`'s
+comments show how to swap in Anthropic or xAI instead):
+
+```
+export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
+export GOOGLE_API_KEY=...
+./agentforge run /path/to/AlgoReel/algoreel-agents/agents/script.yaml \
+  -m "explain breadth-first search"
 ```
 
 ## Algorithms
