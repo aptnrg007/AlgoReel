@@ -28,13 +28,35 @@
 # requires — a disqualification that's entirely about tool calling,
 # which this agent never does. It's a dedicated code model doing a pure
 # code-writing task instead.
+#
+# Runs as `algoreel-coder`, not plain `qwen2.5-coder:14b` — a derived
+# model (Modelfile.coder, `ollama create algoreel-coder -f
+# Modelfile.coder`) with num_ctx raised past Ollama's 4096 default,
+# mirroring algoreel-llama's own Modelfile and for the same category of
+# reason: this agent's retry prompts embed the previous attempt's full
+# code plus a real validator error, and a caller-supplied description can
+# itself be long (found live: a full pseudocode spec, hundreds of words,
+# passed to help this model with quicksort specifically).
+#
+# Honest result on quicksort, after that live finding: still fails,
+# cleanly, in 2 different ways across repeated tries — first a fixed-
+# pivot implementation genuinely O(n²) on the sandbox's adversarial
+# scaling check (fixed by adding explicit pivot-strategy guidance below),
+# then a randomized-pivot attempt with a real off-by-one bug producing
+# wrong output. Two clean, fast, correctly-diagnosed failures (not a
+# hang, not a crash) is real evidence this is a genuine capability
+# ceiling for a 14B local model on this specific algorithm — same
+# category as the insertion-sort finding — not something worth further
+# prompt iteration. Selection sort and cocktail sort both succeeded on
+# the first attempt; quicksort's recursion + partitioning is exactly the
+# combination PLAN.md §10 already flagged as hard even to hand-write.
 name: algorithm
 
 model:
   provider: ollama
-  name: qwen2.5-coder:14b
+  name: algoreel-coder
   temperature: 0.2
-  # algoreel-llama (qwen3:8b, see Modelfile) is this project's other
+  # algoreel-llama (qwen3:8b, see ../Modelfile) is this project's other
   # proven local model, tool-calling and all — swap to it if
   # qwen2.5-coder's code quality disappoints:
   # provider: ollama
@@ -81,8 +103,16 @@ instructions: |
   - Implement the algorithm's real behavior, including its real
     complexity. Do not implement bubble sort (or any other simple
     O(n²) sort) and call it something else — this is checked by
-    measuring how your comparison count actually scales with input size,
-    not just by trusting the name.
+    measuring how your comparison count actually scales with input size
+    on an adversarial (reverse-sorted) array, not just by trusting the
+    name.
+  - If you're asked for quicksort or any other pivot-based divide-and-
+    conquer sort: always picking a fixed pivot (first element, last
+    element) is a common mistake that looks right on random input but is
+    genuinely O(n²) on already-sorted or reverse-sorted input — exactly
+    what the complexity check above tests against. Use a pivot that
+    doesn't depend on the array already being unsorted-ish: randomized,
+    median-of-three, or middle-element.
   - `run` receives the array via `trace` — do not read or write any
     other input.
 

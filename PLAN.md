@@ -602,6 +602,66 @@ from a name string alone, so this is prose guidance, not an enforced
 guard, same category of thing as the honesty instruction two paragraphs
 up.
 
+**Found live, a third and much more severe bug: a real caching-corruption
+crash, triggered by asking for quicksort.** A user's `./preview.sh
+"quick sort algorithm"` hung — Ollama running continuously for 4+ minutes,
+60+ back-to-back completions, no visible outer process, until manually
+killed. Root cause, confirmed by direct reproduction: `ensure_algorithm`'s
+`description` field is agent-supplied, not developer-controlled, and
+Claude Sonnet (trying to help the local model with a hard algorithm) had
+passed a full multi-line pseudocode spec as the description.
+`cacheGeneratedAlgorithm` spliced it straight into a single `// ` line
+comment — every line after the first leaked as raw, uncommented top-level
+text, producing a file that passed every validator (they only ever check
+`req.code`, sandboxed separately, never the cached file's own text) but
+was syntactically broken TypeScript on disk. That file then crashed the
+very next dynamic `import()` — uncaught, and (before this fix) *after*
+`rebuildManifest()` had already added a static import of it, meaning the
+corrupted file would have broken the entire server's static import chain
+on next startup, not just this one algorithm. Worse: the crash produced a
+confusing, unhelpful error (an esbuild transform error, not a validator
+message about the actual code) that got fed back into the next retry
+attempt, and the broken file's "don't clobber a trusted file" guard meant
+no attempt could ever succeed afterward — every subsequent try hit the
+same corrupted import, regardless of what new code it generated.
+
+Fixed three ways in `sandbox.ts`: (1) the header comment now gets only a
+short excerpt of the description, never the full text — the complete
+text is always safely recoverable from the `DESCRIPTION` string export
+instead, which handles newlines correctly by construction; (2) the
+post-cache dynamic `import()` now happens *before* `rebuildManifest()`,
+wrapped in a try/catch that deletes the file on failure — a broken file
+is caught and removed before the manifest ever learns it exists, so the
+next attempt starts clean instead of being permanently blocked; (3) since
+`existing` is already confirmed falsy by the time caching runs, any file
+already on disk under that name is by definition untrusted debris from an
+interrupted prior attempt, not a trusted cache — the "don't clobber"
+guard was removed entirely rather than papered over.
+
+Direct reproduction after the fix: the exact same request (quicksort)
+now fails cleanly in ~20s across 3 real attempts, with an accurate
+validator error, instead of hanging for 4+ minutes. The remaining
+failure is real and separate: this local model repeatedly produces a
+fixed-pivot quicksort, genuinely O(n²) on the sandbox's adversarial
+(reverse-sorted) scaling check — a classic, well-known naive-quicksort
+mistake. `algorithm.yaml`'s instructions were extended with explicit
+pivot-strategy guidance; a retest then failed differently (a genuine
+off-by-one bug in a randomized-pivot attempt) rather than fully
+succeeding. Two clean, fast, correctly-diagnosed failures — not a hang,
+not a crash — is accepted as real evidence of a capability ceiling for a
+14B local model on this specific algorithm, same category as the
+insertion-sort finding, and isn't being iterated on further.
+
+Also added, independent of root-causing this incident: `algorithm.yaml`
+now runs on `algoreel-coder` (`algoreel-agents/Modelfile.coder`), a
+derived model with `num_ctx` raised past Ollama's 4096 default —
+mirroring `algoreel-llama`'s existing Modelfile, for the same category of
+reason (retry prompts embed prior code and errors, and a caller-supplied
+description can be long, as this incident itself demonstrated). Not
+confirmed as the fix for anything specific — observed prompts never
+actually exceeded ~1100 tokens even during the incident — but cheap,
+safe, and removes a variable before it becomes one.
+
 Graph algorithms (DFS, Dijkstra, BST insert, stack/queue) are **not**
 covered by any of this — Phase A and the algorithm agent are both
 array-only. A `TracedGraph` equivalent is a natural follow-up but hasn't

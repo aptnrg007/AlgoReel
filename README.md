@@ -320,6 +320,44 @@ Following the phased plan in `PLAN.md` §9:
   search" from a name alone, so `binarySearch` (hand-written, from
   `list_algorithms`) stays the only search available.
 
+  **A third, much more severe bug, also found live:** a real user's
+  `./preview.sh "quick sort algorithm"` hung — Ollama running
+  continuously for 4+ minutes with no visible outer process, until
+  manually killed. Root cause: `ensure_algorithm`'s `description` is
+  agent-supplied (Claude Sonnet had passed a full multi-line pseudocode
+  spec, trying to help the local model with quicksort specifically), and
+  the caching code spliced it into a single-line comment — every line
+  after the first leaked as raw, uncommented top-level text, producing a
+  file that passed every validator (they only check the sandboxed code,
+  never the cached file's own text) but was syntactically broken
+  TypeScript. That file then crashed the next dynamic import, fed back a
+  confusing non-answer as "feedback," and — because a "don't clobber a
+  trusted file" guard treated it as already trusted — permanently blocked
+  every further attempt at that name. Fixed three ways in `sandbox.ts`:
+  the header comment now takes only a short excerpt (the full text is
+  always safe in the `DESCRIPTION` string export); the post-cache import
+  happens *before* the manifest gets updated, with a try/catch that
+  deletes a broken file so the next attempt starts clean instead of
+  corrupting the server's static import chain; and the "don't clobber"
+  guard was removed entirely, since by the time caching runs, any file
+  already on disk under that name is provably untrusted debris, not a
+  trusted cache.
+
+  Reproduced after the fix: the same request now fails cleanly in ~20s
+  across 3 real attempts with an accurate error, instead of hanging.
+  Quicksort's remaining failure is real and separate — this model keeps
+  writing a fixed-pivot implementation, genuinely O(n²) on the sandbox's
+  adversarial scaling check, a classic naive-quicksort mistake.
+  `algorithm.yaml` gained explicit pivot-strategy guidance; a retest then
+  hit a different bug (an off-by-one in a randomized-pivot attempt)
+  rather than succeeding. Two clean, fast, correctly-diagnosed failures —
+  not a hang — is accepted as a real capability ceiling for this local
+  model on this specific algorithm, same category as insertion sort, and
+  isn't being iterated on further. Also added regardless: `algorithm.yaml`
+  now runs on `algoreel-coder` (`algoreel-agents/Modelfile.coder`), the
+  same context-headroom treatment `algoreel-llama` already gets, though
+  it wasn't confirmed as the actual fix for this incident.
+
 ## Quickstart
 
 ```

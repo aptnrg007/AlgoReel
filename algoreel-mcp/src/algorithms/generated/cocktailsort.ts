@@ -1,5 +1,5 @@
 // AUTO-GENERATED and validated by AlgoReel's codegen path
-// (algoreel-mcp/src/algorithms/sandbox.ts) on 2026-08-23T17:16:10.822Z.
+// (algoreel-mcp/src/algorithms/sandbox.ts) on 2026-08-23T17:53:57.486Z.
 // Bidirectional bubble sort: alternates forward and backward passes through the array, swapping adjacent out-of-order elements, until no swaps are needed.
 //
 // Validated once via sandboxed execution (result-correctness +

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
@@ -152,15 +152,75 @@ test("a correct, properly-instrumented merge sort passes and caches a file", asy
   assert.ok(existsSync(join(GENERATED_DIR, "mergesortsandboxtest.ts")), "expected a cached generated file");
 });
 
+// Found live: ensure_algorithm's `description` field is agent-supplied,
+// not developer-controlled, and a caller (Claude Sonnet, trying to help
+// a weak local model succeed on a hard algorithm) once passed a full
+// multi-line pseudocode spec as the description. cacheGeneratedAlgorithm
+// used to splice it straight into a single `// ` line comment — every
+// line after the first leaked as raw, uncommented top-level text,
+// producing a file that passed every validator (they only ever check
+// req.code, sandboxed separately) but was syntactically broken TypeScript
+// on disk, which then crashed the *next* dynamic import (and, before the
+// import-before-manifest-rebuild fix, would have broken the whole
+// server's static import chain on next startup). This locks in both
+// fixes: the header comment survives a multi-line description, and the
+// full text is still recoverable from the DESCRIPTION export.
+const MULTILINE_DESCRIPTION = `Bidirectional bubble sort. Exact algorithm:
+
+function cocktailSort(arr):
+  sweep forward, then backward, swapping out-of-order neighbors
+  repeat until a pass makes no swaps
+
+Test your index arithmetic carefully.`;
+
+test("a multi-line, agent-supplied description doesn't corrupt the cached file", async () => {
+  await generateAndValidateAlgorithm({
+    name: "multilineDescTest",
+    description: MULTILINE_DESCRIPTION,
+    code: DISGUISED_BUBBLE_SORT, // any real, correctly-instrumented sort works — this isn't testing correctness
+    input: INPUT,
+  });
+  const filePath = join(GENERATED_DIR, "multilinedesctest.ts");
+  assert.ok(existsSync(filePath));
+  const contents = readFileSync(filePath, "utf8");
+  // Every line of the header (before the first real import statement)
+  // must be a comment or blank — the bug produced raw pseudocode
+  // statements (e.g. a bare "function cocktailSort(arr):" line) there
+  // instead, once the description had more than one line.
+  for (const line of contents.split("\n")) {
+    if (line.startsWith("import ")) break;
+    assert.ok(
+      line.trim() === "" || line.trim().startsWith("//"),
+      `expected only comments in the header, got: ${JSON.stringify(line)}`,
+    );
+  }
+  // The full multi-line text must still be recoverable, just safely
+  // inside a real string literal rather than a broken comment.
+  assert.ok(contents.includes(JSON.stringify(MULTILINE_DESCRIPTION)));
+});
+
 // Was a warning-only result until the algorithm agent's retry loop
 // (ensureAlgorithm.ts) needed a failed attempt to actually fail — a
 // warning that still cached the bad implementation meant a retry's
 // second attempt would hit the fast path and get the same bad code
 // handed straight back, with no way to ever succeed.
-test("a bubble sort submitted as quickSort is rejected by the scaling-based complexity check, not just cached with a warning", async () => {
+//
+// Unlike every other fixture name in this file, this one can't be
+// renamed to something synthetic — the complexity check is keyed off
+// EXPECTED_COMPLEXITY in sandbox.ts, a fixed lookup of real algorithm
+// names ("mergesort", "quicksort", "heapsort"), so this test has to use
+// one of those to exercise it at all. "heapSort" is currently the least
+// likely of the three to ever get a real committed example (mergesort
+// succeeds easily; quicksort is a documented model-capability failure —
+// see algorithm.yaml — that might get revisited and fixed later, making
+// it the worse choice here). If generated/heapsort.ts is ever committed
+// for real, rename this fixture the same way "mergeSort" and
+// "selectionSort" already had to be (see the comment above the merge
+// sort test).
+test("a bubble sort submitted as heapSort is rejected by the scaling-based complexity check, not just cached with a warning", async () => {
   await assert.rejects(
     generateAndValidateAlgorithm({
-      name: "quickSort",
+      name: "heapSort",
       description: "test fixture — deliberately mislabeled",
       code: DISGUISED_BUBBLE_SORT,
       input: INPUT,
@@ -179,21 +239,21 @@ test("a sort that never calls trace.compare() is rejected even though its result
 
 test("wrong output fails the result-correctness check, not just a warning", async () => {
   await assert.rejects(
-    generateAndValidateAlgorithm({ name: "heapSort", description: "t", code: WRONG_RESULT_CODE, input: INPUT }),
+    generateAndValidateAlgorithm({ name: "wrongResultSandboxTest", description: "t", code: WRONG_RESULT_CODE, input: INPUT }),
     (err: unknown) => err instanceof GenerateAlgorithmError && /not correctly sorted/.test(err.message),
   );
 });
 
 test("an infinite loop is killed and reported as a clean error, not a hang", async () => {
   await assert.rejects(
-    generateAndValidateAlgorithm({ name: "shellSort", description: "t", code: INFINITE_LOOP_CODE, input: INPUT }),
+    generateAndValidateAlgorithm({ name: "infiniteLoopSandboxTest", description: "t", code: INFINITE_LOOP_CODE, input: INPUT }),
     (err: unknown) => err instanceof GenerateAlgorithmError,
   );
 });
 
 test("code attempting require() is blocked by the sandbox", async () => {
   await assert.rejects(
-    generateAndValidateAlgorithm({ name: "timSort", description: "t", code: ESCAPE_ATTEMPT_CODE, input: INPUT }),
+    generateAndValidateAlgorithm({ name: "escapeAttemptSandboxTest", description: "t", code: ESCAPE_ATTEMPT_CODE, input: INPUT }),
     (err: unknown) => err instanceof GenerateAlgorithmError && /require is not defined/.test(err.message),
   );
 });

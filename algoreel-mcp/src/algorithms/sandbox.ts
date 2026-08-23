@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -221,8 +221,17 @@ export async function generateAndValidateAlgorithm(req: GenerateAlgorithmInput):
     }
   }
 
-  await cacheGeneratedAlgorithm(req, key);
-  rebuildManifest();
+  // Any file already sitting at this path is untrusted debris, not a
+  // trusted cache — if it were trusted, manifest.ts would already
+  // reference it, which means it would already have been registered at
+  // module load, which means `existing` above would have been truthy and
+  // returned already. The only way to reach this line with a file
+  // already here is a previous attempt that wrote it but never got as
+  // far as registering it (a crash, a Ctrl+C, or — the case that
+  // motivated this comment — an import failure below). Always overwrite
+  // it rather than trying to preserve it.
+  const filePath = join(GENERATED_DIR, `${key}.ts`);
+  await cacheGeneratedAlgorithm(req, key, filePath);
 
   // Load the file we just wrote and register it in-memory directly —
   // this dynamic import is fine here (unlike algorithms/index.ts, this
@@ -230,9 +239,29 @@ export async function generateAndValidateAlgorithm(req: GenerateAlgorithmInput):
   // only from server.ts's plain Node process), and means a second
   // request for the same algorithm within this same process also skips
   // the sandbox, not just after the next restart's static manifest load.
-  const mod: Record<string, unknown> = await import(pathToFileURL(join(GENERATED_DIR, `${key}.ts`)).href);
+  //
+  // Done BEFORE rebuildManifest() and wrapped in a try/catch, not after —
+  // found live: a bug in cacheGeneratedAlgorithm's template once produced
+  // a syntactically broken file (see that function's comment) that still
+  // passed every validator above (they only ever check req.code, sandboxed
+  // separately, never the cached file's own text). rebuildManifest() had
+  // already added a static import of it by the time this import failed,
+  // which is a much worse state to be in: a broken import in manifest.ts
+  // breaks the *entire* server at startup, not just this one algorithm.
+  // Importing first means a broken file is caught and deleted before
+  // manifest.ts ever learns it exists, so the next attempt starts clean.
+  let mod: Record<string, unknown>;
+  try {
+    mod = await import(pathToFileURL(filePath).href);
+  } catch (err) {
+    rmSync(filePath, { force: true });
+    throw new GenerateAlgorithmError(
+      `generated code passed every check but the cached file itself failed to load: ${err instanceof Error ? err.message : String(err)}. This is a caching bug, not a problem with the algorithm — please retry.`,
+    );
+  }
   const run = mod[key];
   if (typeof run === "function") {
+    rebuildManifest();
     registerGenerated(key, req.description, run as AlgorithmEntry["run"]);
   }
 
@@ -242,14 +271,24 @@ export async function generateAndValidateAlgorithm(req: GenerateAlgorithmInput):
   };
 }
 
-async function cacheGeneratedAlgorithm(req: GenerateAlgorithmInput, key: string): Promise<void> {
-  const filePath = join(GENERATED_DIR, `${key}.ts`);
-  if (existsSync(filePath)) return; // first validated submission wins; don't clobber a trusted file
-
-  const escapedDescription = req.description.replace(/\*\//g, "*\\/");
+async function cacheGeneratedAlgorithm(req: GenerateAlgorithmInput, key: string, filePath: string): Promise<void> {
+  // The header comment gets only a short excerpt, not the full
+  // description verbatim — found live: an agent-supplied description can
+  // be arbitrarily long and multi-line (a caller once passed a full
+  // pseudocode algorithm spec, hundreds of words, to help a weak model
+  // succeed on a hard one), and splicing that into a single `// ` prefix
+  // left every line after the first as raw, uncommented top-level text —
+  // syntactically broken TypeScript that still got cached, because this
+  // function has no way to validate its own template output. The full
+  // text is never lost — it's always in the DESCRIPTION export below, a
+  // real JS string literal via JSON.stringify, safe with newlines by
+  // construction.
+  const firstLine = req.description.split("\n")[0]!.trim();
+  const excerpt = firstLine.length > 300 ? `${firstLine.slice(0, 300)}...` : firstLine;
+  const headerComment = excerpt.replace(/\*\//g, "*\\/");
   const contents = `// AUTO-GENERATED and validated by AlgoReel's codegen path
 // (algoreel-mcp/src/algorithms/sandbox.ts) on ${new Date().toISOString()}.
-// ${escapedDescription}
+// ${headerComment}
 //
 // Validated once via sandboxed execution (result-correctness +
 // complexity-class checks — see sandbox.ts) before being cached here.

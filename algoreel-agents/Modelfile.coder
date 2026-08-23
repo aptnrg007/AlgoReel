@@ -1,0 +1,21 @@
+# The algorithm agent's model (algoreel-agents/agents/algorithm.yaml).
+# Bumped past Ollama's 4096-token runtime default for the same reason
+# algoreel-llama's Modelfile bumps qwen3's: ensureAlgorithm.ts's retry
+# loop (algoreel-mcp/src/algorithms/ensureAlgorithm.ts) embeds the
+# previous attempt's full code plus sandbox.ts's real validator error
+# into each retry's prompt, and a caller's `description` can itself be
+# long and multi-line (found live: script.yaml once passed a full
+# pseudocode algorithm spec, hundreds of words, trying to help this model
+# succeed on quicksort). None of that has actually overflowed 4096 yet in
+# testing — observed prompts topped out around 1100 tokens — but this
+# removes the variable before it becomes one, the same precautionary
+# reasoning already applied to algoreel-llama.
+#
+# Plain qwen2.5-coder:14b, not a different base model — see
+# algorithm.yaml's own STATUS comment for why: it's the model this
+# project's *other* Modelfile (this directory's Modelfile) rejected for
+# script.yaml/animate.yaml, but only because it doesn't reliably wrap
+# tool calls in <tool_call> tags. algorithm.yaml is deliberately toolless
+# (same STATUS comment), so that disqualification doesn't apply here.
+FROM qwen2.5-coder:14b
+PARAMETER num_ctx 16384
