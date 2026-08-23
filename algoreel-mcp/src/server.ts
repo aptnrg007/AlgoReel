@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import { ALGORITHMS, runAlgorithmByName, type AlgorithmName } from "./algorithms/index";
 import { splitPrimarySteps } from "./spec/beats";
+import { checkRender } from "./spec/checkRender";
 import { ALGORITHM_INPUT_SCHEMAS } from "./spec/schema";
 import { validateSpec } from "./spec/validate";
 import type { StorySpec } from "./spec/types";
@@ -66,6 +67,23 @@ server.registerTool(
   async ({ spec }) => {
     const result = validateSpec(spec);
     return text(JSON.stringify(result, null, 2), !result.valid);
+  },
+);
+
+server.registerTool(
+  "check_render",
+  {
+    description:
+      "Check whether a StorySpec will render into a watchable video — things validate_spec can't see because they're about layout and pacing, not spec shape: an array too wide for the frame, animation steps that get zero screen time, or a render whose real duration is far from targetDurationSec. Free, no render. Call this before render_preview.",
+    inputSchema: { spec: z.record(z.string(), z.unknown()) },
+  },
+  async ({ spec }) => {
+    const validation = validateSpec(spec);
+    if (!validation.valid) {
+      return text(JSON.stringify({ error: "spec is invalid, cannot check render", details: validation.errors }, null, 2), true);
+    }
+    const result = checkRender(spec as unknown as StorySpec);
+    return text(JSON.stringify(result, null, 2), !result.pass);
   },
 );
 

@@ -117,6 +117,42 @@ Following the phased plan in `PLAN.md` §9:
   "`targetDurationSec` is a sibling of `youtube`, not nested inside it"
   warning `script.yaml` already had, which was sending qwen3 into the
   identical unproductive loop on the render side.
+- **Phase 4 — Layer 1 done, Layer 2 blocked on AgentForge.** A spec that
+  passes `validate_spec` can still render into something unwatchable —
+  proven live: a 40-element `bubbleSort` spec with two short narration
+  beats validates cleanly, then produces 1601 animation checkpoints of
+  which **1598 get zero frames**, because `buildTimeline`'s frame budget
+  divides evenly across far more checkpoints than a short beat has frames
+  for. New `check_render` MCP tool (`algoreel-mcp/src/spec/checkRender.ts`)
+  catches this and three other classes of failure — an array too wide for
+  the 1080px frame, graph nodes overlapping past 24 on the fixed layout
+  circle, and a real render duration drifting from `targetDurationSec` —
+  as a **pure function of the spec**, not a rendered video: every check
+  turned out to need nothing but `buildTimeline()`'s existing timeline math
+  and the fixed geometry in `tokens.ts`, so it runs before the expensive
+  render instead of after. That last check alone caught two specs already
+  sitting in the repo silently missing their target duration by 8+
+  seconds (`specs/binary-search-demo.json`, and Phase 3's own
+  `bfs-party-intro-demo.json`) — `validate_spec` had no way to see either.
+  New **`qa.yaml`** agent drives `check_render` → fix → `check_render` →
+  `validate_spec` → `render_preview` (gated, same principle as
+  `animate.yaml`); verified live end-to-end on Phase 4's own exit case: a
+  deliberately broken 40-element/90-second-target spec was rewritten down
+  to 6 elements across 6 beats with a matching `targetDurationSec: 32`,
+  unaided, and rendered to a real mp4. **Vision QA (Layer 2) is not
+  built** — traced into AgentForge and confirmed its MCP client
+  stringifies image tool results into raw base64 text
+  (`internal/mcp/content.go`), so a screenshot would reach the model as
+  ~90K tokens of noise, not something it can see; no `BlockImage` type,
+  no image support in any provider, `Capabilities.Vision` declared but
+  never read. Fixing it is a breaking change across roughly five files —
+  tracked as a separate follow-up, not attempted here. Also found but
+  deliberately **not fixed here**: `Caption.tsx` renders captions at
+  `bottom: 60px`, inside the bottom 280px `SAFE_AREA` reserved because
+  YouTube's UI overlays it — every video rendered so far has its caption
+  in that covered band. It's constant across every spec (a template bug,
+  not a per-spec one) and deserves its own look against a real render
+  rather than a fix bundled into a QA-focused phase.
 
 ## Quickstart
 
@@ -173,6 +209,20 @@ export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
 export GOOGLE_API_KEY=...
 ./agentforge run /path/to/AlgoReel/algoreel-agents/agents/script.free.yaml \
   -m "explain breadth-first search"
+```
+
+Check a StorySpec for layout/pacing problems and render it once it's
+clean — **`qa.yaml`** takes a StorySpec directly (paste the JSON as the
+message), fixes anything `check_render` flags, then renders. Like
+`animate.yaml`, `render_preview` needs a separate approval:
+
+```
+export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
+export ANTHROPIC_API_KEY=...
+./agentforge run /path/to/AlgoReel/algoreel-agents/agents/qa.yaml \
+  -m "$(cat some-spec.json)" --output-format json
+# then, once it reports state: awaiting_approval:
+./agentforge runs approve <run-id> <call-id>
 ```
 
 ## Algorithms

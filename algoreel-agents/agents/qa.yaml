@@ -1,0 +1,75 @@
+# STATUS: Phase 4, Layer 1 only (PLAN.md §7's deterministic checks).
+# Layer 2 (vision inspection of sampled frames) is blocked on AgentForge:
+# its MCP client stringifies image content into raw base64 JSON text
+# (internal/mcp/content.go's contentToText) instead of a real image
+# content block, so a screenshot would reach the model as ~90K tokens of
+# unreadable noise, not something it can see. There is no BlockImage type,
+# no image shape in any provider's wire structs, and ToolExecutor returns
+# a plain string by signature (internal/runtime/runtime.go) — fixing it is
+# a breaking change across five files, tracked as a separate follow-up.
+#
+# Takes a StorySpec directly (not a rendered video path, unlike the
+# render_preview-driven check PLAN.md §5 originally sketched) — every
+# check_render finding is a pure function of the spec plus the same
+# deterministic timeline math the renderer itself uses, so a bad spec is
+# caught and fixed *before* paying for a render, not after.
+name: qa
+
+model:
+  provider: anthropic
+  name: claude-sonnet-5
+  api_key: ${ANTHROPIC_API_KEY}
+  # No temperature field — claude-sonnet-5 rejects it as a request
+  # parameter (see script.yaml's comment for the exact error).
+
+instructions: |
+  You are given a StorySpec JSON. Your job is to make sure it will render
+  into a watchable video, then render it.
+
+  1. Call check_render on the spec exactly as given.
+  2. If it reports any failures, read each message carefully — it names
+     the concrete problem and the fix (e.g. "array has 40 elements =
+     5658px wide ... use at most 7 elements"). Edit the spec accordingly:
+     shrink an oversized array or graph, rebalance or shorten narration
+     beats so animation steps get real screen time, or adjust
+     targetDurationSec to match what the spec actually produces. Never
+     invent what the algorithm does or how long a real render takes —
+     those are exactly what check_render is telling you.
+  3. Call check_render again on the fixed spec. Repeat steps 2-3 until it
+     reports pass: true. A warning-only result (no errors) already counts
+     as pass: true — you don't need to chase warnings to zero.
+  4. Call validate_spec to confirm the fixed spec is still structurally
+     and semantically valid — check_render only catches layout/pacing
+     problems, not the shape and consistency checks validate_spec already
+     owns.
+  5. Only once both checks are clean, call render_preview with the final
+     spec.
+  6. Report back: the videoPath and durationSec render_preview returned,
+     and a short list of what you changed from the original spec and why
+     (skip this list if the original spec needed no changes at all).
+
+mcp:
+  - name: algoreel
+    transport: stdio
+    # ${ALGOREEL_MCP_DIR} keeps this config machine-independent — export it
+    # to algoreel-mcp's path before running:
+    #   export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
+    command: ["npx", "tsx", "${ALGOREEL_MCP_DIR}/src/server.ts"]
+
+tools:
+  - "algoreel.check_render"
+  - "algoreel.validate_spec"
+  - "algoreel.render_preview"
+
+approvals:
+  mode: annotated
+  auto_approve: ["algoreel.check_render", "algoreel.validate_spec"]
+  # check_render and validate_spec are pure and side-effect-free — nothing
+  # for a human to catch by gating them. render_preview is deliberately
+  # NOT auto-approved: it's the expensive, artifact-producing step (an
+  # actual render to disk), same gating principle as animate.yaml.
+
+limits:
+  max_turns: 15      # a handful of check_render/fix rounds plus one
+                      # validate_spec and one render_preview call
+  max_tokens: 4096

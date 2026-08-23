@@ -216,9 +216,12 @@ algoreel.render_preview(specPath)
   -> { videoPath, framePaths: string[], durationSec }
   # 540x960, low quality, fast. Samples ~6 frames as PNGs.
 
-algoreel.check_render(previewPath)
+algoreel.check_render(spec)
   -> { pass: bool, failures: Check[] }
-  # deterministic assertions, see §7
+  # deterministic assertions, see §7. Built: takes the spec, not a
+  # previewPath — every check turned out to be a pure function of the
+  # spec + buildTimeline()'s existing timeline math, so it runs before
+  # the expensive render, not after. See §7.
 
 algoreel.render_final(specPath)
   -> { videoPath, durationSec, sizeBytes }
@@ -262,23 +265,19 @@ Every video is: **hook → algorithm animation → complexity card**. Same skele
 
 "Agent inspects the render and decides it looks bad" is the weakest link in any agentic-video diagram. A local coder model cannot see, and even a vision model asked "does this look good?" gives useless answers.
 
-**Layer 1 — deterministic checks (catches ~80% of real failures, costs nothing):**
+**Layer 1 — deterministic checks. Built** (`algoreel-mcp/src/spec/checkRender.ts`, wired up as the `check_render` MCP tool and driven by `qa.yaml`). Turned out every check with real signal is a pure function of the spec + `buildTimeline()`'s existing timeline math + the fixed geometry in `tokens.ts` — no pixels needed, so `check_render` runs on the spec directly, before the expensive render:
 
-- Every operation in the log maps to a non-empty frame range
-- No text bounding box crosses the safe area
-- No two array cells overlap; total array width ≤ frame width − margins
-- `abs(audioDuration − timelineDuration) < 0.5s`
-- Final frame is not blank; no frame is >98% single-colour
-- Total duration within ±5s of `targetDurationSec`
-- Every `emphasis` word actually appears in a caption
+- `array-too-wide` / `array-near-edge` — array width vs frame width, computed from element count and `CELL` (an 8-element array is already 1114px, wider than the 1080px frame — caught live: Phase 3's own trial 4 spec had this and nothing noticed).
+- `graph-nodes-overlap` — adjacent node spacing on the fixed layout circle vs `NODE.size` (breaks past 24 nodes).
+- `invisible-checkpoints` — any animation checkpoint that gets `durationInFrames: 0` because a beat has more real animation steps than its narration duration allows. This is the headline finding: a 40-element bubbleSort spec with 2 short op beats produces 1601 checkpoints, of which **1598 get zero frames** — `validate_spec` passes this spec cleanly today.
+- `blank-checkpoint` — a checkpoint with no array and no graph nodes (the renders-nothing failure `buildTimeline`'s intro-seeding comment already documents having happened once).
+- `duration-off-target` — real computed duration vs `targetDurationSec`, >5s drift. Also live: the committed `binary-search-demo.json` and Phase 3's `bfs-party-intro-demo.json` both claim 30s and actually render to ~21.5s — neither was ever caught before this.
 
-Implement these as pure functions over the operation log + layout metadata + sampled frame pixel data. This is `check_render`.
+Three of the originally sketched checks are **not implemented**, each for a concrete reason found while building this: "every operation maps to a frame range" is superseded by `invisible-checkpoints` (checking checkpoints, not raw operations, since `compare`/`done` are deliberate visual no-ops that never produce a checkpoint); "every emphasis word appears in a caption" already lives in `validate.ts`; "no frame is >98% single-colour" would be a false-positive machine against this template — a 7-cell array covers ~5.6% of the frame against a flat background, so *every valid render* is already >90% single-colour, and the "did anything render" signal it's chasing is what `blank-checkpoint` already covers geometrically. `abs(audioDuration − timelineDuration) < 0.5s` is vacuous until real TTS lands (§11) — `generate_voice` estimates from the same function the timeline itself uses.
 
-**Layer 2 — vision, and only for specific questions:**
+**Layer 2 — vision. Blocked on AgentForge, not attempted here.** Traced end to end: AgentForge's MCP client (`internal/mcp/content.go`'s `contentToText`) flattens any non-text MCP content block — including a real `ImageContent`— into raw base64 JSON *text*. A modest screenshot would reach the model as ~90K tokens of unreadable noise, not something it can see. There's no `BlockImage` type in `internal/message/message.go`, no image shape in any provider's wire structs, and `Capabilities.Vision` is declared on every vision-capable provider but never read anywhere in production. `ToolExecutor` itself returns a plain `string` by signature (`internal/runtime/runtime.go`), so fixing this is a breaking change across roughly five files. Tracked as a separate follow-up plan, not part of Phase 4.
 
-Send 4–6 sampled frames to a vision model and ask closed questions: *"Is any text cut off at the edge? Is any element overlapping another? Answer JSON: {textClipped: bool, overlap: bool, notes: string}."* Never ask for aesthetic judgement.
-
-The QA agent's job is to read the failure list and decide *what to change* — adjust pacing, shorten narration, reduce array size, re-render. That's a genuine agentic decision with a verifiable success criterion.
+The QA agent's job is to read the failure list and decide *what to change* — adjust pacing, shorten narration, reduce array size, re-render. That's a genuine agentic decision with a verifiable success criterion, and it's exactly what `qa.yaml` does today with Layer 1 alone.
 
 ---
 
@@ -290,7 +289,7 @@ Sketches; refine against real AgentForge YAML once the needed features land.
 
 **animate.yaml** — `run_algorithm`, `generate_voice`, `render_preview`. Mostly mechanical; a local model can drive this once the tool schemas are tight.
 
-**qa.yaml** — `check_render`, vision inspection, returns pass/fail + concrete fix instructions. Model: Claude with vision.
+**qa.yaml** — built. `check_render`, `validate_spec`, `render_preview` (gated, same as `animate.yaml`). Model: `claude-sonnet-5` — Layer 1 only for now (§7), so vision isn't actually exercised yet despite the model supporting it.
 
 **publish.yaml** — `render_final`, `youtube.upload`. Upload behind `approvals.require`. Model: anything.
 
@@ -355,7 +354,27 @@ call. Phase 3 is done.
 ### Phase 4 — QA loop
 Deterministic checks, then vision. Agent retries on failure.
 
-*Exit:* a deliberately broken spec (40-element array, 90 seconds of narration) gets caught and fixed by the agent without you intervening.
+**Layer 1 done; Layer 2 blocked on AgentForge** (see §7's full writeup —
+MCP image content reaches the model as unreadable base64 text today, a
+five-file fix, tracked separately). `check_render` — a pure function of
+the spec, not a render, since every real check turned out to need nothing
+but the spec + the timeline math already in `buildTimeline.ts` — and
+`qa.yaml` are both built and verified live.
+
+*Exit:* a deliberately broken spec (40-element array, 90 seconds of
+narration) gets caught and fixed by the agent without you intervening.
+**Met.** Given a 40-element bubbleSort spec with `targetDurationSec: 90`
+and only 2 thin narration beats, `qa.yaml` ran `check_render` (caught
+`array-too-wide`, `invisible-checkpoints` — 1598 of 1601 checkpoints at
+0 frames — and `duration-off-target`, 76s off), rewrote the spec down to
+6 elements across 6 narration beats with `targetDurationSec: 32`,
+`check_render` clean, `validate_spec` clean, then rendered — all without
+any input beyond the one approval on `render_preview` itself, which stays
+gated by design (same as `animate.yaml`). Along the way, `check_render`
+also caught two *already-committed* specs silently missing their target
+duration by 8+ seconds (`specs/binary-search-demo.json`,
+`specs/bfs-party-intro-demo.json`) — real bugs `validate_spec` never had
+the information to see.
 
 **Publish the first Short here, manually.** Not because it's ready — because you need to find out whether the format works at all before building more on top of it.
 

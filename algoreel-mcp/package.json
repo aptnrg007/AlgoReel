@@ -8,7 +8,8 @@
     "render:bubble-sort": "remotion render remotion/index.ts BubbleSort out/bubble-sort.mp4",
     "render:bfs": "remotion render remotion/index.ts Bfs out/bfs.mp4",
     "generate:schema": "tsx scripts/generate-story-spec-schema.ts",
-    "studio": "remotion studio remotion/index.ts"
+    "studio": "remotion studio remotion/index.ts",
+    "test": "node --import tsx --test src/**/*.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
