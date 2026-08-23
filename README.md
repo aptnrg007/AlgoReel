@@ -284,6 +284,17 @@ export ANTHROPIC_API_KEY=...
 ./agentforge runs approve <run-id> <call-id>
 ```
 
+Just want to see a topic turn into a video, no YouTube step anywhere in
+the flow — **`preview.sh`** chains `script.yaml` into `qa.yaml`, pausing
+for exactly one approval (`render_preview`). It never even starts
+`youtube-server.ts`:
+
+```
+export AGENTFORGE_BIN=/path/to/AgentForge/agentforge   # if not on PATH
+./preview.sh "explain linked lists"
+# prints the pending render_preview call, then: Approve this? [y/N]
+```
+
 Go all the way from a bare topic to a "published" video in one command —
 **`run.sh`** chains `script.yaml` into `publish.yaml`, pausing for
 exactly one approval (the upload). `agentforge` needs to be findable —
@@ -298,7 +309,7 @@ export AGENTFORGE_BIN=/path/to/AgentForge/agentforge   # if not on PATH
 # prints the pending youtube.upload call, then: Approve this? [y/N]
 ```
 
-Set `AUTO_APPROVE=1 ./run.sh "..."` to skip the interactive prompt for
+Both scripts accept `AUTO_APPROVE=1` to skip the interactive prompt, for
 an unattended run.
 
 ## Algorithms
