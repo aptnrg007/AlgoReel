@@ -72,7 +72,13 @@ instructions: |
   2. Pick the algorithm that best matches the topic and a small, concrete
      input (5-8 numbers is plenty; binarySearch needs it sorted ascending;
      bfs needs nodes/edges/start).
-  3. Draft a full StorySpec matching this exact top-level shape — copy this
+  3. Call run_algorithm with that algorithm and input, and read its
+     summary and primaryStepCount. Base every "op:N" beat you write on
+     what it actually reports, not on what you'd expect the algorithm to
+     do — it is the only source of truth for the trace, and its
+     primaryStepCount is a hard ceiling on how many "op:N" beats you may
+     write (fewer is fine; never more).
+  4. Draft a full StorySpec matching this exact top-level shape — copy this
      structure, don't nest fields anywhere other than shown here (a common
      mistake is nesting targetDurationSec inside youtube; it belongs at the
      top level, as a sibling of youtube, not inside it):
@@ -91,19 +97,21 @@ instructions: |
      Two rules the schema itself cannot enforce:
      - "op:N" beats MUST start at op:0 and increase one at a time with no
        gaps: op:0, op:1, op:2, ... — never op:1, op:2 (missing op:0) and
-       never op:0, op:2 (skipping op:1). When in doubt, write fewer beats.
+       never op:0, op:2 (skipping op:1). Use at most run_algorithm's
+       primaryStepCount; when in doubt, write fewer beats.
      - Every string in "emphasis" must appear character-for-character
        (case-insensitive) inside your narration text somewhere — prefer
        single words you're certain you used, over invented phrases.
-  4. Call validate_spec on that draft — even a rough one, immediately,
+  5. Call validate_spec on that draft — even a rough one, immediately,
      as your very next tool call after drafting it. Do not skip this.
-  5. Read the errors. Fix every one, including ones a JSON Schema can't
+  6. Read the errors. Fix every one, including ones a JSON Schema can't
      express: an unsorted array, more "op:N" beats than the algorithm has
-     real animation steps (use at most the primaryStepCount validate_spec
-     names), an emphasis word that isn't literally in any narration text.
-  6. Call validate_spec again on the fixed version. Repeat step 5-6 until
+     real animation steps (use at most the primaryStepCount run_algorithm
+     and validate_spec name), an emphasis word that isn't literally in any
+     narration text.
+  7. Call validate_spec again on the fixed version. Repeat step 6-7 until
      it returns valid: true.
-  7. Only then, give your final answer: the StorySpec JSON and nothing
+  8. Only then, give your final answer: the StorySpec JSON and nothing
      else — no prose, no markdown fences, no explanation.
 
 mcp:
@@ -116,15 +124,20 @@ mcp:
 
 tools:
   - "algoreel.list_algorithms"
+  - "algoreel.run_algorithm"
   - "algoreel.validate_spec"
 
 approvals:
   mode: annotated
-  auto_approve: ["algoreel.list_algorithms", "algoreel.validate_spec"]
-  # Unlike animate.yaml, both tools here are pure and side-effect-free —
-  # list_algorithms is a static lookup, validate_spec never renders or
-  # writes a preview file — so there's nothing for a human to catch by
-  # gating them.
+  auto_approve:
+    ["algoreel.list_algorithms", "algoreel.run_algorithm", "algoreel.validate_spec"]
+  # list_algorithms and validate_spec are pure and side-effect-free.
+  # run_algorithm does write a scratch operations-log JSON under
+  # algoreel-mcp/out/ (src/server.ts) so the model can be given a
+  # primaryStepCount without dumping the full trace into context, but
+  # that file is disposable working data, not a published artifact like
+  # animate.yaml's render_preview output — so auto-approving it here
+  # doesn't skip anything a human would want to gate.
 
 # Deliberately NOT using AgentForge's output.schema feature here, even
 # though it exists for exactly this job (auto-validate + auto-retry a
