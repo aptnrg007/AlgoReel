@@ -348,8 +348,9 @@ qwen3 that didn't close its reliability gap. Still blocks all vision QA
 (Phase 4) either way.
 
 *Exit:* `script.yaml` produces valid StorySpec JSON on 5 consecutive
-topics without hand-editing. 3 consecutive clean runs on Anthropic so
-far, not yet the full 5.
+topics without hand-editing. **Met** — 5/5 clean runs on Anthropic (a mix
+of direct and indirect topics), each valid on the first `validate_spec`
+call. Phase 3 is done.
 
 ### Phase 4 — QA loop
 Deterministic checks, then vision. Agent retries on failure.

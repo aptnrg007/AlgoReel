@@ -57,7 +57,7 @@ Following the phased plan in `PLAN.md` §9:
   namespaced tool name — which took three rejected models to find (see
   `algoreel-agents/agents/animate.yaml`'s comments and
   `algoreel-agents/Modelfile`).
-- **Phase 3 — verified live, not yet at PLAN.md §9's full bar.**
+- **Phase 3 — done, PLAN.md §9's bar met.**
   `script.yaml` (topic → StorySpec) needs open-ended authoring *and*
   multi-round self-correction discipline at once — the one combination
   `algoreel-llama` (qwen3:8b) measurably couldn't hold, across repeated
@@ -110,9 +110,10 @@ Following the phased plan in `PLAN.md` §9:
   20-requests/day cap on the non-lite model plus the native-provider
   dependency above, and qwen3's 1-in-5 ceiling described above. Use it
   only if avoiding a paid API key matters more than those tradeoffs.
-  3 consecutive clean runs on Anthropic is real progress toward PLAN.md
-  §9's five-consecutive-topic exit bar, but isn't the full five yet.
-  Also fixed along the way: `animate.yaml` was missing the same
+  **5/5 clean runs on Anthropic** (a mix of direct and indirect topics,
+  every one valid on the first `validate_spec` call) clears PLAN.md §9's
+  five-consecutive-topic exit bar. Also fixed along the way: `animate.yaml`
+  was missing the same
   "`targetDurationSec` is a sibling of `youtube`, not nested inside it"
   warning `script.yaml` already had, which was sending qwen3 into the
   identical unproductive loop on the render side.
