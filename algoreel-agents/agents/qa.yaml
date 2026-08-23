@@ -12,13 +12,12 @@
 # ExecuteRich/BlockImage/ToolResultParts (internal/mcp, internal/message,
 # internal/provider/anthropic.go) — verified live before wiring this up.
 #
-# Known finding Layer 2 will very likely surface on every run: captions
-# render at a fixed bottom:60px, inside the 280px band SAFE_AREA reserves
-# for YouTube's UI overlay. That's a template bug (remotion/primitives/
-# Caption.tsx), not a per-spec one — deliberately left unfixed here (see
-# PLAN.md §7's Layer 1 section for the full writeup). The instructions
-# below tell the agent not to loop trying to fix a template-constant
-# issue by editing the spec.
+# A caption/safe-area template bug found during this phase (captions at a
+# fixed bottom:60px, inside the 280px band SAFE_AREA reserves for
+# YouTube's UI overlay) has since been fixed in Caption.tsx — see
+# PLAN.md §7. The instructions below still tell the agent not to loop
+# trying to fix a template-constant issue by editing the spec, since a
+# different one could turn up the same way.
 name: qa
 
 model:

@@ -314,6 +314,10 @@ below, which is the expected, honest result: nothing in the frame itself
 is clipped or overlapping — YouTube's UI only covers that band once the
 video is actually in the app, which an isolated still can't show a vision
 model. That gap is real but out of Layer 2's narrow scope as specified.
+**Since fixed** — `Caption.tsx` anchored to a bare `bottom: 60`, which a
+`position: absolute` element ignores `Frame`'s `paddingBottom` for; moved
+to `bottom: SAFE_AREA.bottom` so it clears the reserved band entirely.
+Confirmed visually via `sample_frames` itself on the exact spec above.
 
 The QA agent's job is to read the failure list and decide *what to
 change* — adjust pacing, shorten narration, reduce array size, re-render.

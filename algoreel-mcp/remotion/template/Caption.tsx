@@ -1,6 +1,6 @@
 import React from "react";
 import { spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { COLORS, TYPE_SCALE } from "./tokens";
+import { COLORS, SAFE_AREA, TYPE_SCALE } from "./tokens";
 
 // Splits caption text on emphasis words (case-insensitive) and colors them.
 // Emphasis words are chosen by the agent (spec.emphasis) — this component
@@ -32,7 +32,16 @@ export const Caption: React.FC<{ text: string; emphasis: string[] }> = ({ text, 
     <div
       style={{
         position: "absolute",
-        bottom: 60,
+        // Was a bare 60 — a `position: absolute` child ignores Frame's
+        // paddingBottom (that padding only affects flow-positioned
+        // children like Hook/Outro), so this sat 60px from the true
+        // frame edge, deep inside the 280px band SAFE_AREA.bottom
+        // reserves for YouTube's own UI overlay. Anchoring to
+        // SAFE_AREA.bottom instead puts the caption's bottom edge
+        // exactly at that boundary, clearing the covered zone entirely
+        // (found in Phase 4 QA planning, confirmed on every rendered
+        // video so far — see PLAN.md §7).
+        bottom: SAFE_AREA.bottom,
         left: 60,
         right: 60,
         textAlign: "center",

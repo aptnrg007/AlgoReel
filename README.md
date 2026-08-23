@@ -164,16 +164,21 @@ Following the phased plan in `PLAN.md` §9:
   Phase 4's own exit case: a deliberately broken 40-element/90-second-target
   spec was rewritten down to 6 elements across 6 beats with a matching
   `targetDurationSec: 32`, unaided, and rendered to a real mp4. Also found
-  but deliberately **not fixed here**: `Caption.tsx` renders captions at
-  `bottom: 60px`, inside the bottom 280px `SAFE_AREA` reserved because
-  YouTube's UI overlays it — every video rendered so far has its caption
-  in that covered band. It's constant across every spec (a template bug,
-  not a per-spec one) and deserves its own look against a real render
-  rather than a fix bundled into a QA-focused phase. Layer 2 correctly
-  doesn't flag it either, on an honest technicality worth understanding:
-  nothing in an isolated still is actually clipped or overlapping — the
-  problem only exists once YouTube's real app UI covers that band, which
-  a bare frame can't show a vision model.
+  but deliberately **not fixed in that phase**: `Caption.tsx` rendered
+  captions at `bottom: 60px`, inside the bottom 280px `SAFE_AREA`
+  reserved because YouTube's UI overlays it — every video rendered so
+  far had its caption in that covered band. Left alone at the time since
+  it's constant across every spec (a template bug, not a per-spec one)
+  and deserved its own look against a real render rather than a fix
+  bundled into a QA-focused phase. Layer 2 correctly didn't flag it
+  either, on an honest technicality worth understanding: nothing in an
+  isolated still is actually clipped or overlapping — the problem only
+  exists once YouTube's real app UI covers that band, which a bare frame
+  can't show a vision model. **Fixed afterward**: anchored to
+  `bottom: SAFE_AREA.bottom` instead of a bare `60`, since a
+  `position: absolute` element ignores `Frame`'s `paddingBottom`.
+  Confirmed visually — rendered a real frame with `sample_frames` and
+  looked at it directly, the same tool this phase built.
 
 ## Quickstart
 
