@@ -268,6 +268,58 @@ Following the phased plan in `PLAN.md` §9:
   DSA entirely — all raised in discussion, all premature before this
   narrower array-algorithm mechanism had real evidence behind it.
 
+- **The algorithm agent — code-writing moved out of `script.yaml`.**
+  Phase A worked, but it made `script.yaml` write algorithm code inline,
+  which meant ~40 lines of `TracedArray` contract documentation living
+  in an agent whose actual job is storytelling. `script.yaml` now just
+  calls a new tool, **`ensure_algorithm(algorithm, structure)`** — a
+  registry hit returns instantly; a miss hands the writing job to a
+  brand new, **toolless** specialist agent,
+  `algoreel-agents/agents/algorithm.yaml`, on a free local model
+  (`qwen2.5-coder:14b` via Ollama — zero API key, zero marginal cost per
+  retry). The retry loop (up to 3 attempts, `sandbox.ts`'s real
+  validator error fed back into the prompt each time) lives in
+  TypeScript (`algoreel-mcp/src/algorithms/ensureAlgorithm.ts`), not
+  inside `algorithm.yaml`'s own AgentForge turn loop — on purpose: a
+  toolless agent only ever does one "read prompt, emit code" completion
+  per attempt, which is a far more reliable ask of a small local model
+  than multi-round tool-call self-correction (this project's own
+  earlier testing already found that unreliable for `script.free.yaml`'s
+  qwen3: 1 success in 5 trials). It also avoids a second `algoreel-mcp`
+  server process quietly writing into `generated/` behind the first
+  one's back — AgentForge has no locking anywhere in its codebase to
+  make that safe.
+
+  Two real sandbox gaps surfaced while building this, both fixed:
+  a complexity-mismatch **warning still cached the bad file**, which
+  would have broken the retry loop outright (attempt 2 would just hit
+  the cache and get the same bad code back) — now a hard rejection. And
+  **nothing checked for zero `trace.compare()` calls** — a sort that
+  skips instrumentation passed clean and would render with no comparison
+  highlights; now a validator catches it before caching.
+
+  Verified live end to end: selection sort succeeded on the *first*
+  attempt through the real pipeline (agent → sandbox → validators →
+  cache). Insertion sort failed all 3 attempts with the same incorrect
+  index-tracking bug every time — real, reported evidence that a 14B
+  local model's reliability is genuinely topic-dependent, not just a
+  theoretical risk of going local. The mechanism is proven; per-topic
+  code quality from a free model isn't guaranteed, and there's currently
+  no escalation to a paid model when it fails. See `PLAN.md` §10 and
+  §11.
+
+  **A second, more fundamental gap, also found live:** asking for
+  `"linear search"` burned all 3 retry attempts every single time,
+  because `sandbox.ts`'s correctness check compares the result against
+  the array sorted ascending — which no search can ever produce, correct
+  or not. `ensure_algorithm` was never anything but sorting-only; the
+  instructions just hadn't said so plainly, a gap dating back to Phase A
+  that no earlier live test happened to expose. Fixed in the prose
+  (`script.yaml`, `script.free.yaml`, `ensure_algorithm`'s own
+  description) — there's no cheap way to mechanically detect "this is a
+  search" from a name alone, so `binarySearch` (hand-written, from
+  `list_algorithms`) stays the only search available.
+
 ## Quickstart
 
 ```
@@ -384,8 +436,9 @@ through the same `VisualState`, `buildTimeline`, and beat-grouping
 pipeline with no other special-casing.
 
 Beyond those three, any array-shaped algorithm (sorting, searching, two
-pointers, ...) can be added without touching this repo by hand — see
-Phase A above. `algorithms/generated/` holds whatever's been validated
-and cached so far; `list_algorithms`' `generated: true` field tells the
-agent (and you) which entries came from that path versus were
-hand-written.
+pointers, ...) can be added without touching this repo by hand — call
+`ensure_algorithm`, described above, which writes and validates one via
+a dedicated local-model agent if it isn't cached yet.
+`algorithms/generated/` holds whatever's been validated and cached so
+far; `list_algorithms`' `generated: true` field tells the agent (and
+you) which entries came from that path versus were hand-written.

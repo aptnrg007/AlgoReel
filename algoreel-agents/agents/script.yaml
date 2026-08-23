@@ -13,23 +13,23 @@
 # a `temperature` field outright (confirmed via a live 400), which is why
 # there isn't one below.
 #
-# Since then: run_algorithm gained a second form — {name, description,
-# code, input} — so a topic that doesn't match any of the 3 hand-written
+# Since then: a topic that doesn't match any of the 3 hand-written
 # algorithms (algoreel-mcp/src/algorithms/{binarySearch,bubbleSort,bfs}.ts)
 # no longer forces one of them into the slot with misleading narration
 # (found live: "reversing a linked list" produced a bubbleSort spec
 # describing swaps as "pointer flipping," which is not how reversal
-# works). For array-shaped algorithms (sorting/searching), the agent can
-# write a real implementation against a TracedArray contract instead —
-# it runs in a sandboxed child process (algoreel-mcp/src/algorithms/
-# sandbox.ts: Node's --permission flag plus a vm.Script timeout, both
-# confirmed live to actually hold), gets checked for result-correctness
-# and complexity-class plausibility, and — once validated — is cached as
-# a real, permanent algorithm file, reused by every future request for
-# that name with no re-sandboxing. Non-array topics (linked lists, trees)
-# still aren't supported — the instructions below tell the agent to be
-# honest about that rather than force a mismatch, same principle as
-# before, just narrower in scope now.
+# works). First fix put codegen inline here — this agent wrote the
+# TracedArray implementation itself, which worked but bloated this
+# prompt with ~40 lines of contract documentation unrelated to
+# storytelling. Moved out to a dedicated specialist: ensure_algorithm
+# (algoreel-mcp/src/algorithms/ensureAlgorithm.ts) hands the actual
+# writing to a separate, toolless agent (algorithm.yaml) running on a
+# free local model, retrying up to 3 times with sandbox.ts's real
+# validator errors fed back on failure. This agent now only needs to ask
+# for an algorithm by name — no TracedArray contract, no code, no
+# sandbox awareness. Non-array topics (linked lists, trees) still aren't
+# supported — the instructions below tell the agent to be honest about
+# that rather than force a mismatch, same principle as before.
 #
 # A free/local-only alternative lives side by side in script.free.yaml —
 # same instructions and tools, only the model block differs. It runs on
@@ -90,36 +90,30 @@ instructions: |
      small, concrete input (5-8 numbers is plenty; binarySearch needs it
      sorted ascending; bfs needs nodes/edges/start).
 
-     If nothing genuinely matches but the topic is really about sorting
-     or searching a list of numbers (merge sort, quicksort, insertion
-     sort, selection sort, or anything else array-shaped that isn't
-     listed yet), you can implement it yourself instead of forcing a
-     mismatched existing algorithm into the slot. Call run_algorithm with
-     {name, description, code, input} instead of {algorithm, input},
-     where code is TypeScript defining exactly one function,
-     `function run(trace: TracedArray): void`, against:
-       interface TracedArray {
-         readonly length: number;
-         get(i: number): number;
-         set(i: number, value: number): void;
-         compare(i: number, j: number): -1 | 0 | 1;
-         swap(i: number, j: number): void;
-         toArray(): number[];
-       }
-     Your code runs for real in a sandbox — the animation is a mechanical
-     recording of what it actually did, not something you write directly,
-     so a wrong implementation shows up as a wrong result or a
-     mismatched-complexity warning in run_algorithm's response, never as
-     something you can fix by writing more convincing text. Route every
-     real comparison through trace.compare(i, j), not a raw < or > on
-     values you already fetched with trace.get() — comparing local copies
-     (e.g. inside a merge step) is fine for the actual decision, but call
-     trace.compare() on the corresponding positions too, purely so the
-     video shows the comparison happening; skipping it still sorts
-     correctly but the video will show zero comparison highlights. Once
-     validated this becomes a permanent algorithm, reused instantly by
-     name on every future request — see list_algorithms' "generated"
-     field.
+     If nothing genuinely matches but the topic is really about *sorting*
+     a list of numbers (merge sort, quicksort, insertion sort, selection
+     sort, or anything else sort-shaped that isn't listed yet), call
+     ensure_algorithm with {algorithm, structure: "array"} instead of
+     forcing a mismatched existing algorithm into the slot. It makes sure
+     a working implementation exists — writing and validating one behind
+     the scenes if it doesn't yet — and can take a while the first time
+     (tens of seconds to a few minutes), but is near-instant on every
+     later request for the same name. It does not run the algorithm on
+     your chosen input; use the name it returns with
+     run_algorithm({algorithm: <that name>, input}) for that, same as any
+     other algorithm.
+
+     ensure_algorithm is sorting-only, not searching — its correctness
+     check works by comparing the result against the array sorted
+     ascending, which has no meaning for a search. binarySearch is the
+     only searching algorithm available (from list_algorithms); a
+     different search (linear search, two-pointer search, ...) is not
+     currently supported by ensure_algorithm and should be treated the
+     same as a non-array topic below (found live: repeatedly asking
+     ensure_algorithm for "linear search" burns real attempts and always
+     fails, because a correct linear search never produces a sorted
+     array — don't call ensure_algorithm for anything that doesn't
+     actually sort).
 
      If the topic isn't even array-shaped — a genuinely different data
      structure like a linked list or tree, which isn't supported yet —
@@ -140,8 +134,9 @@ instructions: |
      structure or operation if what you built doesn't actually match it.
      A viewer should never come away believing something untrue about
      the topic they asked for.
-  3. Call run_algorithm (see step 2 for its two forms) and read its
-     summary and primaryStepCount. Base every "op:N" beat you write on
+  3. Call run_algorithm({algorithm, input}) with the name you picked in
+     step 2 (or the name ensure_algorithm returned) and read its summary
+     and primaryStepCount. Base every "op:N" beat you write on
      what it actually reports, not on what you'd expect the algorithm to
      do — it is the only source of truth for the trace, and its
      primaryStepCount is a hard ceiling on how many "op:N" beats you may
@@ -193,12 +188,13 @@ mcp:
 tools:
   - "algoreel.list_algorithms"
   - "algoreel.run_algorithm"
+  - "algoreel.ensure_algorithm"
   - "algoreel.validate_spec"
 
 approvals:
   mode: annotated
   auto_approve:
-    ["algoreel.list_algorithms", "algoreel.run_algorithm", "algoreel.validate_spec"]
+    ["algoreel.list_algorithms", "algoreel.run_algorithm", "algoreel.ensure_algorithm", "algoreel.validate_spec"]
   # list_algorithms and validate_spec are pure and side-effect-free.
   # run_algorithm does write a scratch operations-log JSON under
   # algoreel-mcp/out/ (src/server.ts) so the model can be given a
@@ -206,6 +202,16 @@ approvals:
   # that file is disposable working data, not a published artifact like
   # animate.yaml's render_preview output — so auto-approving it here
   # doesn't skip anything a human would want to gate.
+  # ensure_algorithm is more consequential than the other three — on a
+  # cache miss it writes a permanent source file into
+  # algoreel-mcp/src/algorithms/generated/ — but it's still auto-approved
+  # here: the write only ever happens after sandbox.ts's own validators
+  # pass (result correctness, comparison instrumentation, complexity
+  # class), it costs nothing (runs on a free local model, not a paid
+  # API), and it's trivially reversible (delete the file, rebuild the
+  # manifest). That's a different risk profile from render_preview/
+  # render_final or youtube.upload, which qa.yaml/publish.yaml gate on
+  # purpose.
 
 # Deliberately NOT using AgentForge's output.schema feature here, even
 # though it exists for exactly this job (auto-validate + auto-retry a
@@ -237,7 +243,8 @@ limits:
                      # needed 3 tool calls in testing, but this leaves
                      # room for a harder topic or script.free.yaml's
                      # weaker models
-  max_tokens: 8192   # generous headroom for a "thinking" model's trace
+  max_tokens: 6144   # generous headroom for a "thinking" model's trace
                       # (can run past 2500 tokens before the real answer
-                      # starts) plus room for a written-out algorithm
-                      # implementation on the codegen path
+                      # starts). Back down from 8192 now that this agent
+                      # no longer writes algorithm code itself — that
+                      # room moved to algorithm.yaml, which does.

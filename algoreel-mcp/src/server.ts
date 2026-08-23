@@ -11,6 +11,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 import { getAlgorithm, listAlgorithms, runAlgorithmByName } from "./algorithms/index";
+import { ensureAlgorithm, EnsureAlgorithmError } from "./algorithms/ensureAlgorithm";
 import { generateAndValidateAlgorithm, GenerateAlgorithmError } from "./algorithms/sandbox";
 import type { Operation } from "./algorithms/types";
 import { splitPrimarySteps } from "./spec/beats";
@@ -120,19 +121,8 @@ server.registerTool(
     description:
       "Run an algorithm on a given input and get back a summary of what happened, without writing a video. Useful for sanity-checking an input (e.g. the search actually finds the target) before writing narration around it. The returned primaryStepCount is the maximum number of \"op:N\" narration beats the StorySpec can use — more than that and validate_spec will reject it.\n\n" +
       "Two ways to call this:\n" +
-      "1. {algorithm, input} — for a name list_algorithms already returned.\n" +
-      "2. {name, description, code, input} — when nothing in list_algorithms genuinely matches the topic. Write TypeScript defining exactly one function, `function run(trace: TracedArray): void`, where TracedArray is:\n" +
-      "     interface TracedArray {\n" +
-      "       readonly length: number;\n" +
-      "       get(i: number): number;\n" +
-      "       set(i: number, value: number): void;\n" +
-      "       compare(i: number, j: number): -1 | 0 | 1;\n" +
-      "       swap(i: number, j: number): void;\n" +
-      "       toArray(): number[];\n" +
-      "     }\n" +
-      "   input is currently array-only: { array: number[] }. Your code runs for real in a sandbox — the animation is a mechanical recording of what it actually did, not something you write directly, so a wrong implementation shows up as a wrong result, not a wrong description.\n" +
-      "   Route every real comparison your algorithm makes through trace.compare(i, j) — not a raw < or > on values you already fetched with trace.get(). Comparing local copies (e.g. in a merge step) is fine for the real decision, but call trace.compare() on the corresponding positions too, purely so the video shows a comparison happening; skipping it entirely still sorts correctly but the video will show zero comparison highlights.\n" +
-      "   On success this becomes a permanent algorithm — a later run_algorithm({algorithm: name, input}) or a topic that matches it again reuses the exact same validated code, no regeneration.",
+      "1. {algorithm, input} — for a name list_algorithms already returned, or the name ensure_algorithm just made available. This is the form to use for a real, chosen video input.\n" +
+      "2. {name, description, code, input} — a lower-level form that submits raw TypeScript directly to the same sandbox/validator pipeline ensure_algorithm uses. Prefer calling ensure_algorithm instead when the topic doesn't match anything in list_algorithms — it handles writing and validating the code for you.",
     inputSchema: {
       algorithm: z.string().optional(),
       name: z.string().optional(),
@@ -144,7 +134,6 @@ server.registerTool(
   async ({ algorithm, name, description, code, input }) => {
     let resolvedAlgorithm: string;
     let result: { operations: Operation[]; summary: string };
-    let warnings: string[] = [];
 
     if (name && code) {
       // The codegen path (PLAN.md's Phase A) — see sandbox.ts for the
@@ -163,7 +152,6 @@ server.registerTool(
           input: input as { array: number[] },
         });
         result = { operations: generated.operations, summary: generated.summary };
-        warnings = generated.warnings;
       } catch (err) {
         const message = err instanceof GenerateAlgorithmError ? err.message : err instanceof Error ? err.message : String(err);
         return text(JSON.stringify({ error: message }, null, 2), true);
@@ -208,13 +196,35 @@ server.registerTool(
           primaryStepCount,
           operationsPath: opsPath,
           algorithm: resolvedAlgorithm,
-          ...(warnings.length > 0 ? { warnings } : {}),
         },
         null,
         2,
       ),
-      warnings.length > 0,
     );
+  },
+);
+
+server.registerTool(
+  "ensure_algorithm",
+  {
+    description:
+      "Guarantee a sorting algorithm on a number array is available to run, generating and validating it if it isn't already. Call this when a topic doesn't genuinely match anything in list_algorithms, instead of forcing a mismatched existing algorithm into the slot. This tool does NOT run the algorithm on your video's input — call run_algorithm({algorithm: <the returned name>, input}) afterward for that. " +
+      "SORTING ONLY — its correctness check compares the result against the array sorted ascending, which has no meaning for a search or anything else. Do not call this for a search algorithm (binarySearch, from list_algorithms, is the only search available) or any non-array structure (linked list, tree, graph) — be honest that those aren't supported instead of asking for a sort as a stand-in. " +
+      "Internally this hands the job to a dedicated algorithm-writing agent and retries with real validator feedback on failure (up to 3 attempts), so it can take a while — expect tens of seconds to a few minutes on a genuinely new algorithm, and near-instant if it's already cached.",
+    inputSchema: {
+      algorithm: z.string().min(1),
+      description: z.string().optional(),
+      structure: z.enum(["array"]).optional(),
+    },
+  },
+  async ({ algorithm, description, structure }) => {
+    try {
+      const result = await ensureAlgorithm({ algorithm, description, structure });
+      return text(JSON.stringify(result, null, 2));
+    } catch (err) {
+      const message = err instanceof EnsureAlgorithmError ? err.message : err instanceof Error ? err.message : String(err);
+      return text(JSON.stringify({ error: message }, null, 2), true);
+    }
   },
 );
 

@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import * as esbuild from "esbuild";
 
-import { getAlgorithm, registerGenerated, type AlgorithmEntry } from "./index";
+import { getAlgorithmByNormalizedName, normalizeAlgorithmName, registerGenerated, type AlgorithmEntry } from "./index";
 import type { Operation } from "./types";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -23,7 +23,6 @@ export interface GenerateAlgorithmInput {
 export interface GenerateAlgorithmResult {
   operations: Operation[];
   summary: string;
-  warnings: string[];
 }
 
 export class GenerateAlgorithmError extends Error {}
@@ -40,10 +39,6 @@ const EXPECTED_COMPLEXITY: Record<string, "nlogn"> = {
   quicksort: "nlogn",
   heapsort: "nlogn",
 };
-
-function normalizeName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z]/g, "");
-}
 
 // Runs generated code in an isolated child process (PLAN.md's Phase A
 // codegen redesign): the LLM never emits an Operation directly, it
@@ -119,13 +114,18 @@ function runInSandbox(transpiledCode: string, array: number[]): Promise<SandboxR
 }
 
 export async function generateAndValidateAlgorithm(req: GenerateAlgorithmInput): Promise<GenerateAlgorithmResult> {
-  const key = normalizeName(req.name);
+  const key = normalizeAlgorithmName(req.name);
   if (!key) throw new GenerateAlgorithmError("algorithm name must not be empty");
 
   // Registry entries are last-write-wins (registry.set) — without this
   // guard, generated code named e.g. "binarySearch" would silently
   // replace the hand-written, trusted implementation of that name.
-  const existing = getAlgorithm(key);
+  // Compared by normalized name on both sides (getAlgorithmByNormalizedName),
+  // not a plain registry.get(key) — hand-written entries are registered
+  // under their real camelCase name, not a normalized one, so a plain
+  // lookup by the normalized key missed every hand-written collision
+  // except "bfs" (found live while building the algorithm agent).
+  const existing = getAlgorithmByNormalizedName(key);
   if (existing && !existing.generated) {
     throw new GenerateAlgorithmError(
       `"${req.name}" collides with an existing hand-written algorithm — call list_algorithms and use it directly instead of generating a new one under the same name.`,
@@ -142,7 +142,6 @@ export async function generateAndValidateAlgorithm(req: GenerateAlgorithmInput):
     return {
       operations: result.operations,
       summary: result.summary,
-      warnings: [],
     };
   }
 
@@ -154,7 +153,6 @@ export async function generateAndValidateAlgorithm(req: GenerateAlgorithmInput):
   }
 
   const parsed = await runInSandbox(transpiled, req.input.array);
-  const warnings: string[] = [];
 
   // Validator 1: result correctness. Phase A only supports "sorts a
   // number array" — the only class with a cheap, unambiguous oracle.
@@ -165,7 +163,22 @@ export async function generateAndValidateAlgorithm(req: GenerateAlgorithmInput):
     );
   }
 
-  // Validator 2: complexity-class sanity, by *measured growth rate*, not
+  // Validator 2: every real comparison must go through trace.compare(),
+  // not a raw < or > on values already fetched with trace.get(). A sort
+  // that skips it still produces a correctly sorted result (validator 1
+  // passes clean) but the rendered video shows zero comparison
+  // highlights — silently boring rather than visibly broken. Both
+  // server.ts and script.yaml warned about this in prose only; nothing
+  // actually enforced it before the algorithm agent's retry loop made a
+  // small model's tendency to skip instrumentation a real, live problem.
+  const compareCount = parsed.operations.filter((o) => o.type === "compare").length;
+  if (compareCount === 0) {
+    throw new GenerateAlgorithmError(
+      `the algorithm never called trace.compare() — it produced a correct result, but the video would show zero comparison highlights. Route every real comparison through trace.compare(i, j), even if the actual decision is made on local copies (e.g. in a merge step).`,
+    );
+  }
+
+  // Validator 3: complexity-class sanity, by *measured growth rate*, not
   // a single-point threshold. At the small n this project actually uses
   // (5-10 elements for a 30s video), n·log(n) and n² haven't diverged
   // enough for any fixed multiplier on one run's compare count to
@@ -177,10 +190,16 @@ export async function generateAndValidateAlgorithm(req: GenerateAlgorithmInput):
   // each candidate complexity class predicts it should grow — n·log(n)
   // vs n² pull apart sharply once n has room to grow, regardless of
   // constant factors.
+  //
+  // This used to be a warning that still let the file get cached. Now
+  // fatal, by necessity: the algorithm agent's retry loop (ensureAlgorithm.ts)
+  // needs a failed attempt to actually fail — a warning that still cached
+  // the bad implementation meant attempt 2 would hit the fast path above
+  // and get the same bad code handed straight back, with no way to retry.
   const expectedClass = EXPECTED_COMPLEXITY[key];
   if (expectedClass === "nlogn") {
     const n1 = req.input.array.length;
-    const compareCount1 = parsed.operations.filter((o) => o.type === "compare").length;
+    const compareCount1 = compareCount;
     if (n1 >= 2 && compareCount1 > 0) {
       const n2 = Math.max(n1 * 4, 40);
       const syntheticArray = Array.from({ length: n2 }, (_, i) => n2 - i); // worst-case-ish: descending
@@ -195,8 +214,8 @@ export async function generateAndValidateAlgorithm(req: GenerateAlgorithmInput):
       const midpoint = Math.sqrt(nlognRatio * n2Ratio);
 
       if (actualRatio > midpoint) {
-        warnings.push(
-          `"${req.name}" is expected to scale like n·log(n) (~${nlognRatio.toFixed(1)}x when n grows from ${n1} to ${n2}), but its compare count actually grew ~${actualRatio.toFixed(1)}x — much closer to n² (~${n2Ratio.toFixed(1)}x). Double-check this is really ${req.name} and not a slower algorithm mislabeled.`,
+        throw new GenerateAlgorithmError(
+          `"${req.name}" is expected to scale like n·log(n) (~${nlognRatio.toFixed(1)}x when n grows from ${n1} to ${n2}), but its compare count actually grew ~${actualRatio.toFixed(1)}x — much closer to n² (~${n2Ratio.toFixed(1)}x). This is almost certainly a slower algorithm (e.g. bubble/selection/insertion sort) mislabeled as ${req.name}. Implement the real ${req.name} algorithm, don't just relabel a simpler one.`,
         );
       }
     }
@@ -220,7 +239,6 @@ export async function generateAndValidateAlgorithm(req: GenerateAlgorithmInput):
   return {
     operations: parsed.operations,
     summary: `Ran the generated "${req.name}" implementation on ${req.input.array.length} elements; result: [${parsed.result.join(", ")}].`,
-    warnings,
   };
 }
 

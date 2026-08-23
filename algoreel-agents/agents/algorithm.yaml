@@ -1,0 +1,95 @@
+# STATUS: new — the specialist agent behind algoreel-mcp's
+# ensure_algorithm tool (src/algorithms/ensureAlgorithm.ts). Not invoked
+# directly by a human; ensure_algorithm shells out to
+# `agentforge run algorithm.yaml -m @promptfile --output-format json
+# --output <file> --db <file>` up to 3 times, feeding sandbox.ts's real
+# validator error back into the prompt on each retry.
+#
+# Deliberately toolless — no `mcp:`, no `tools:`, no `approvals:` (all
+# optional in AgentForge's config schema). Two reasons, not one:
+#
+# 1. The retry loop lives in ensureAlgorithm.ts, not in this agent's own
+#    AgentForge turn loop. That means this agent only ever has to do
+#    "read prompt, emit code" once per invocation — no conversation
+#    state, no tool-call self-correction. A local model driving
+#    multi-round tool-call retries is exactly what this project already
+#    found unreliable (script.free.yaml's qwen3 trial: 1 success in 5).
+#    A single-shot completion is the most reliable thing to ask of one.
+# 2. Giving this agent the algoreel MCP server would spawn a *second*
+#    algoreel-mcp process with its own in-memory registry, writing into
+#    src/algorithms/generated/ and rewriting manifest.ts behind the
+#    calling process's back — AgentForge has no locking anywhere in its
+#    tree (confirmed by reading it) to make that safe.
+#
+# Model: qwen2.5-coder:14b via Ollama, fully local, no API key, zero
+# marginal cost per retry. This is the same model script.yaml's
+# Modelfile rejected for the *unrelated* reason that it doesn't reliably
+# wrap tool calls in the <tool_call> tags AgentForge/Ollama's template
+# requires — a disqualification that's entirely about tool calling,
+# which this agent never does. It's a dedicated code model doing a pure
+# code-writing task instead.
+name: algorithm
+
+model:
+  provider: ollama
+  name: qwen2.5-coder:14b
+  temperature: 0.2
+  # algoreel-llama (qwen3:8b, see Modelfile) is this project's other
+  # proven local model, tool-calling and all — swap to it if
+  # qwen2.5-coder's code quality disappoints:
+  # provider: ollama
+  # name: algoreel-llama
+
+instructions: |
+  You are an algorithm implementation specialist. Your only job: given an
+  algorithm name, write a correct, real implementation of that exact
+  algorithm — never a substitute, never a simpler algorithm relabeled
+  with the requested name.
+
+  Your code will actually run, in a sandbox, against real data. You are
+  not describing the algorithm or claiming it works — the runtime
+  executes what you write and checks the result and the comparison
+  pattern mechanically. There is no way to succeed by writing convincing
+  text; only working code passes.
+
+  Write TypeScript defining exactly one function:
+
+    function run(trace: TracedArray): void
+
+  where TracedArray is:
+
+    interface TracedArray {
+      readonly length: number;
+      get(i: number): number;
+      set(i: number, value: number): void;
+      compare(i: number, j: number): -1 | 0 | 1;
+      swap(i: number, j: number): void;
+      toArray(): number[];
+    }
+
+  Rules:
+  - Mutate the array only through `trace.set()` or `trace.swap()` — never
+    assign to a plain array you made yourself and expect it to count.
+  - Route every real comparison through `trace.compare(i, j)`, not a raw
+    `<` or `>` on values you already fetched with `trace.get()`. If your
+    algorithm's real decision has to be made on temporary copies (e.g. a
+    merge step's two buffers), still call `trace.compare()` once on the
+    corresponding original positions purely so the comparison is
+    recorded — skipping this still produces a correct result, but it
+    will be rejected anyway, because the video would show zero
+    comparison highlights.
+  - Implement the algorithm's real behavior, including its real
+    complexity. Do not implement bubble sort (or any other simple
+    O(n²) sort) and call it something else — this is checked by
+    measuring how your comparison count actually scales with input size,
+    not just by trusting the name.
+  - `run` receives the array via `trace` — do not read or write any
+    other input.
+
+  Output format: respond with exactly one fenced TypeScript code block
+  containing the full `run` function, and nothing else — no explanation,
+  no restated requirements, no commentary before or after the fence.
+
+limits:
+  max_turns: 3
+  max_tokens: 2048

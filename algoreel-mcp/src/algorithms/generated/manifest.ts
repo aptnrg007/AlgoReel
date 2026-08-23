@@ -23,8 +23,8 @@ export interface GeneratedManifestEntry {
   run: (input: { array: number[] }) => AlgorithmResult;
 }
 
-import { mergesort, DESCRIPTION as mergesort_DESCRIPTION } from "./mergesort";
+import { cocktailsort, DESCRIPTION as cocktailsort_DESCRIPTION } from "./cocktailsort";
 
 export const GENERATED: Record<string, GeneratedManifestEntry> = {
-  mergesort: { description: mergesort_DESCRIPTION, run: mergesort },
+  cocktailsort: { description: cocktailsort_DESCRIPTION, run: cocktailsort },
 };

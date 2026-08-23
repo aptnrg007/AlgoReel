@@ -73,10 +73,33 @@ instructions: |
 
   Required steps, in order:
   1. Call list_algorithms.
-  2. Pick the algorithm that best matches the topic and a small, concrete
-     input (5-8 numbers is plenty; binarySearch needs it sorted ascending;
-     bfs needs nodes/edges/start).
-  3. Call run_algorithm with that algorithm and input, and read its
+  2. If one of its entries genuinely matches the topic, pick it and a
+     small, concrete input (5-8 numbers is plenty; binarySearch needs it
+     sorted ascending; bfs needs nodes/edges/start).
+
+     If nothing genuinely matches but the topic is really about
+     *sorting* a list of numbers, call ensure_algorithm with
+     {algorithm, structure: "array"} instead of forcing a mismatched
+     existing algorithm into the slot. It makes sure a working
+     implementation exists — writing and validating one behind the
+     scenes if it doesn't yet — and can take a while the first time, but
+     is near-instant on every later request for the same name. It does
+     not run the algorithm on your chosen input; use the name it returns
+     with run_algorithm({algorithm: <that name>, input}) for that.
+
+     ensure_algorithm is sorting-only, not searching (its correctness
+     check compares the result against the array sorted ascending, which
+     has no meaning for a search) — binarySearch is the only searching
+     algorithm available, from list_algorithms. Don't call
+     ensure_algorithm for a search; treat it the same as a non-array
+     topic below.
+
+     If the topic isn't even array-shaped — a genuinely different data
+     structure like a linked list or tree, which isn't supported yet —
+     do not force-fit an existing algorithm. Name the spec after whatever
+     you actually run, not the original request, if they don't match.
+  3. Call run_algorithm({algorithm, input}) with the name you picked in
+     step 2 (or the name ensure_algorithm returned), and read its
      summary and primaryStepCount. Base every "op:N" beat you write on
      what it actually reports, not on what you'd expect the algorithm to
      do — it is the only source of truth for the trace, and its
@@ -129,19 +152,21 @@ mcp:
 tools:
   - "algoreel.list_algorithms"
   - "algoreel.run_algorithm"
+  - "algoreel.ensure_algorithm"
   - "algoreel.validate_spec"
 
 approvals:
   mode: annotated
   auto_approve:
-    ["algoreel.list_algorithms", "algoreel.run_algorithm", "algoreel.validate_spec"]
+    ["algoreel.list_algorithms", "algoreel.run_algorithm", "algoreel.ensure_algorithm", "algoreel.validate_spec"]
   # list_algorithms and validate_spec are pure and side-effect-free.
   # run_algorithm does write a scratch operations-log JSON under
   # algoreel-mcp/out/ (src/server.ts) so the model can be given a
   # primaryStepCount without dumping the full trace into context, but
   # that file is disposable working data, not a published artifact like
   # animate.yaml's render_preview output — so auto-approving it here
-  # doesn't skip anything a human would want to gate.
+  # doesn't skip anything a human would want to gate. ensure_algorithm's
+  # rationale is the same as script.yaml's — see that file's comment.
 
 # Deliberately NOT using AgentForge's output.schema feature here, even
 # though it exists for exactly this job (auto-validate + auto-retry a

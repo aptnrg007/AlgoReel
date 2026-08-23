@@ -102,6 +102,20 @@ function run(trace) {
 }
 `;
 
+// Correctly sorts, but never calls trace.compare() — a plain JS operator
+// on values already fetched via trace.get() instead. Validator 1 (result
+// correctness) passes clean; this exists specifically to exercise
+// validator 2, which nothing else here does.
+const NO_COMPARE_CODE = `
+function run(trace) {
+  for (let i = 0; i < trace.length; i++) {
+    for (let j = 0; j < trace.length - i - 1; j++) {
+      if (trace.get(j) > trace.get(j + 1)) trace.swap(j, j + 1);
+    }
+  }
+}
+`;
+
 const INPUT = { array: [38, 27, 43, 3, 9, 82, 10, 15, 22, 5] };
 
 before(resetGeneratedDir);
@@ -127,27 +141,40 @@ after(resetGeneratedDir);
 // test asserts on, because the fast path returns the cached file's own
 // summary, not a fresh sandbox run's).
 
-test("a correct, properly-instrumented merge sort passes with no warnings and caches a file", async () => {
+test("a correct, properly-instrumented merge sort passes and caches a file", async () => {
   const result = await generateAndValidateAlgorithm({
     name: "mergeSortSandboxTest",
     description: "test fixture",
     code: REAL_MERGE_SORT,
     input: INPUT,
   });
-  assert.deepEqual(result.warnings, []);
   assert.ok(result.summary.includes("[3, 5, 9, 10, 15, 22, 27, 38, 43, 82]"));
   assert.ok(existsSync(join(GENERATED_DIR, "mergesortsandboxtest.ts")), "expected a cached generated file");
 });
 
-test("a bubble sort submitted as quickSort is flagged by the scaling-based complexity check", async () => {
-  const result = await generateAndValidateAlgorithm({
-    name: "quickSort",
-    description: "test fixture — deliberately mislabeled",
-    code: DISGUISED_BUBBLE_SORT,
-    input: INPUT,
-  });
-  assert.equal(result.warnings.length, 1);
-  assert.match(result.warnings[0]!, /closer to n²/);
+// Was a warning-only result until the algorithm agent's retry loop
+// (ensureAlgorithm.ts) needed a failed attempt to actually fail — a
+// warning that still cached the bad implementation meant a retry's
+// second attempt would hit the fast path and get the same bad code
+// handed straight back, with no way to ever succeed.
+test("a bubble sort submitted as quickSort is rejected by the scaling-based complexity check, not just cached with a warning", async () => {
+  await assert.rejects(
+    generateAndValidateAlgorithm({
+      name: "quickSort",
+      description: "test fixture — deliberately mislabeled",
+      code: DISGUISED_BUBBLE_SORT,
+      input: INPUT,
+    }),
+    (err: unknown) => err instanceof GenerateAlgorithmError && /closer to n²/.test(err.message),
+  );
+  assert.ok(!existsSync(join(GENERATED_DIR, "quicksort.ts")), "a rejected implementation must not be cached");
+});
+
+test("a sort that never calls trace.compare() is rejected even though its result is correct", async () => {
+  await assert.rejects(
+    generateAndValidateAlgorithm({ name: "noCompareSortTest", description: "t", code: NO_COMPARE_CODE, input: INPUT }),
+    (err: unknown) => err instanceof GenerateAlgorithmError && /never called trace\.compare/.test(err.message),
+  );
 });
 
 test("wrong output fails the result-correctness check, not just a warning", async () => {

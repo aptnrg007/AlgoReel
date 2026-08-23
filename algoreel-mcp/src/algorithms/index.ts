@@ -95,6 +95,26 @@ export function getAlgorithm(name: string): AlgorithmEntry | undefined {
   return registry.get(name);
 }
 
+// Normalizes the same way sandbox.ts's generated-file keys already are —
+// lowercase, letters only. Exported so sandbox.ts's collision/fast-path
+// checks compare apples to apples: generated entries are registered under
+// an already-normalized name (e.g. "mergesort"), but hand-written entries
+// are registered under their real camelCase name ("binarySearch",
+// "bubbleSort"), so a plain registry.get(normalizedKey) silently misses
+// every hand-written entry except "bfs" (the one name that happens to
+// normalize to itself). Found live while building the algorithm agent's
+// retry loop.
+export function normalizeAlgorithmName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z]/g, "");
+}
+
+export function getAlgorithmByNormalizedName(key: string): AlgorithmEntry | undefined {
+  for (const entry of registry.values()) {
+    if (normalizeAlgorithmName(entry.name) === key) return entry;
+  }
+  return undefined;
+}
+
 export function isKnownAlgorithm(name: string): boolean {
   return registry.has(name);
 }

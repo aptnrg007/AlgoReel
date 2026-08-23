@@ -221,13 +221,35 @@ algoreel.run_algorithm(name, input)
   -> { operations: Operation[], summary: string }
   # pure deterministic. NO LLM anywhere in here.
   #
-  # Built: also accepts {name, description, code, input} for an algorithm
-  # not in list_algorithms — code is real TypeScript, executed for real
-  # in a sandboxed child process (Node's --permission flag + a
-  # vm.Script timeout, both confirmed live), checked for result
-  # correctness and complexity-class plausibility, then cached as a
+  # Built: also accepts {name, description, code, input} — a lower-level
+  # form that submits raw TypeScript directly to the sandbox/validator
+  # pipeline. code is executed for real in a sandboxed child process
+  # (Node's --permission flag + a vm.Script timeout, both confirmed
+  # live), checked for result correctness, real comparison
+  # instrumentation, and complexity-class plausibility, then cached as a
   # real, permanent algorithm file — every later request for that name
-  # reuses it directly, no re-sandboxing. See §2 and §10.
+  # reuses it directly, no re-sandboxing. script.yaml no longer calls
+  # this form itself (see ensure_algorithm below); it stays as the
+  # tested low-level API underneath it. See §2 and §10.
+
+algoreel.ensure_algorithm(algorithm, structure)
+  -> { name, description, attempts, alreadyExisted }
+  # Built: the high-level entry point script.yaml actually calls now for
+  # anything not in list_algorithms. Guarantees a working implementation
+  # exists — a registry hit returns immediately; a miss hands the job to
+  # a dedicated, toolless specialist agent (algoreel-agents/agents/
+  # algorithm.yaml, a free local model) and retries up to 3 times,
+  # feeding run_algorithm's real validator error back into the prompt on
+  # each failure. Does NOT run the algorithm on a real input — callers
+  # use the returned name with run_algorithm({algorithm, input}) for
+  # that, same as any hand-written algorithm. Only structure: "array" is
+  # supported. Retry loop lives in TypeScript (src/algorithms/
+  # ensureAlgorithm.ts), not in algorithm.yaml's own AgentForge turn
+  # loop — deliberately, so the local model only ever has to do a single
+  # "read prompt, emit code" completion per attempt rather than drive
+  # multi-round tool-call self-correction, which this project's earlier
+  # local-model testing already found unreliable (script.free.yaml's
+  # qwen3 trial: 1 success in 5). See §10.
 
 algoreel.generate_voice(narration)
   -> { audioPath, perBeatDurations: {beat: seconds}, totalSec }
@@ -509,29 +531,89 @@ the closest existing algorithm into the slot with misleading narration
 determinism boundary up one level rather than abandoning it: for any
 array-shaped algorithm (sorting/searching — linear search, selection
 sort, insertion sort, two pointers, sliding window, merge sort, quicksort,
-...), `script.yaml`'s agent can now write a real implementation against a
-`TracedArray` contract instead of requiring a hand-written entry first.
-It's executed for real in a sandboxed child process (Node's
-`--permission` flag plus a `vm.Script` timeout — both confirmed live to
-actually hold, including blocking `require()` and `process.env`), checked
-for result correctness (against a native reference sort) and
-complexity-class plausibility (compare-count growth rate at two input
-sizes, not a single-point threshold — confirmed live this is what it
-takes to catch a disguised O(n²) sort submitted under an O(n log n) name),
-and only then cached as a real, permanent file in
-`algorithms/generated/`, indistinguishable from a hand-written one on
-every later request for that name. See §2, §5's `run_algorithm`, and
+...), a real implementation gets written against a `TracedArray` contract
+instead of requiring a hand-written entry first. It's executed for real
+in a sandboxed child process (Node's `--permission` flag plus a
+`vm.Script` timeout — both confirmed live to actually hold, including
+blocking `require()` and `process.env`), checked for result correctness
+(against a native reference sort), real comparison instrumentation (a
+correct sort that never calls `trace.compare()` is rejected too — a
+silent gap Phase A originally left open, found live once a weaker model
+made skipping it common), and complexity-class plausibility
+(compare-count growth rate at two input sizes, not a single-point
+threshold — confirmed live this is what it takes to catch a disguised
+O(n²) sort submitted under an O(n log n) name; originally a warning that
+still cached the bad file, now fatal — a warning-that-still-caches
+defeats a retry loop, since the next attempt just hits the cache and
+gets the same bad code back). Only then cached as a real, permanent file
+in `algorithms/generated/`, indistinguishable from a hand-written one on
+every later request for that name. See §5's `run_algorithm` and
 `algoreel-mcp/src/algorithms/sandbox.ts`.
 
+**Built (the algorithm agent): who writes the code moved out of
+script.yaml.** Phase A put the writing job inline in `script.yaml`,
+which worked but cost it ~40 lines of `TracedArray` contract
+documentation with nothing to do with storytelling. `script.yaml` now
+just calls `ensure_algorithm(algorithm, structure)` (§5) and gets a name
+back; the actual writing happens in a separate, **toolless** specialist
+agent, `algoreel-agents/agents/algorithm.yaml`, on a free local model
+(Ollama). The retry loop (≤3 attempts, real validator errors fed back
+into the prompt each time) lives in TypeScript
+(`algoreel-mcp/src/algorithms/ensureAlgorithm.ts`), not inside
+`algorithm.yaml`'s own AgentForge turn loop — deliberately: a toolless
+agent only ever has to do one "read prompt, emit code" completion per
+attempt, which is a far more reliable ask of a small local model than
+multi-round tool-call self-correction (this project's own local-model
+testing already found that unreliable — script.free.yaml's qwen3 trial:
+1 success in 5). It also sidesteps a real hazard: a tooled sub-agent
+would spawn a second `algoreel-mcp` server process writing into
+`generated/` behind the first one's back, and AgentForge has no locking
+anywhere in its tree to make that safe.
+
+Model choice, with honest results: `qwen2.5-coder:14b` (the same local
+model this project's `Modelfile` rejected for *unrelated* reasons — it
+doesn't reliably wrap tool calls in the tags AgentForge/Ollama's
+template requires, which doesn't matter for a toolless agent). Verified
+live end to end: selection sort succeeded on attempt 1 through the real
+pipeline (agent → sandbox → validators → cache). Insertion sort failed
+all 3 attempts with the *same* incorrect index-tracking bug each time —
+real evidence that a 14B local model's ceiling is topic-dependent, not a
+hypothetical risk. The mechanism (agent, retry loop, feedback,
+validators) is proven; per-algorithm code quality from a free local
+model is not guaranteed, and isn't currently retried with a stronger
+model as a fallback.
+
+**Found live, a second and more fundamental gap: `ensure_algorithm` is
+sorting-only, and nothing said so.** Asking for `"linear search"` burned
+every one of 3 retry attempts, repeatedly, because `sandbox.ts`'s
+correctness check (§5) works by comparing the sandboxed result against
+the input array sorted ascending — which has no meaning for a search. A
+*correct* linear search implementation fails this check exactly as hard
+as a wrong one; the retry loop had no way to ever succeed, no matter how
+good the code was. This bug predates the algorithm agent — `script.yaml`'s
+instructions have said "sorting or searching" since Phase A, but the
+sandbox was never anything but sort-only, and no earlier live test
+happened to try a search. Fixed by narrowing `script.yaml`,
+`script.free.yaml`, and `ensure_algorithm`'s own tool description to say
+"sorting only" plainly, with `binarySearch` named as the one search
+that's actually available (from `list_algorithms`, hand-written). Not
+fixed mechanically — there's no cheap way to detect "this is a search"
+from a name string alone, so this is prose guidance, not an enforced
+guard, same category of thing as the honesty instruction two paragraphs
+up.
+
 Graph algorithms (DFS, Dijkstra, BST insert, stack/queue) are **not**
-covered by this — Phase A is array-only. A `TracedGraph` equivalent is a
-natural follow-up but hasn't been built. Structures needing a new visual
-primitive (linked lists, trees) remain fully out of scope regardless of
-codegen — `script.yaml` is instructed to say so honestly rather than
-force a mismatched array algorithm into that slot, the same failure mode
-this phase already fixed once, one level more subtle (an honestly-coded
-algorithm can still get a dishonest narration wrapped around it — also
-found live and fixed, see `script.yaml`'s STATUS comment).
+covered by any of this — Phase A and the algorithm agent are both
+array-only. A `TracedGraph` equivalent is a natural follow-up but hasn't
+been built. Structures needing a new visual primitive (linked lists,
+trees) remain fully out of scope regardless of codegen —
+`ensure_algorithm` rejects any `structure` other than `"array"`
+mechanically, and `script.yaml` is instructed to say so honestly rather
+than force a mismatched array algorithm into that slot, the same failure
+mode this phase already fixed once, one level more subtle (an
+honestly-coded algorithm can still get a dishonest narration wrapped
+around it — also found live and fixed, see `script.yaml`'s STATUS
+comment).
 
 Avoid early: quicksort (recursion + partitioning is two hard things), anything DP (tables are a whole separate primitive), anything with a call stack visualisation. (These were "avoid early" for *hand-writing*; codegen makes quicksort specifically no harder than merge sort to add now, since the agent — not a human — writes the partitioning logic.)
 
@@ -542,6 +624,8 @@ Avoid early: quicksort (recursion + partitioning is two hard things), anything D
 - **TTS provider.** ElevenLabs (quality, cost) vs OpenAI TTS (cheap, adequate) vs local Piper (free, robotic). Try Piper first — if it sounds acceptable at Shorts pace, the whole pipeline stays local and free.
 - **Channel identity.** The repo is AlgoReel; the YouTube channel doesn't have to be. Faceless channel? Consistent intro sound? Decide before video #1, not video #10.
 - **Repo split.** `algoreel-mcp` and `algoreel-agents` could be one repo. Probably should be, until they aren't.
+- **A roster of further specialist agents.** The algorithm agent (§10) is the first split-out specialist; a QA agent, a narration agent, and a publish-decision agent were all raised as the same pattern applied further. Deliberately not pursued yet — the algorithm agent needed to actually work first, and it did, but on evidence (see §10's insertion-sort finding) that a free local model's reliability is genuinely topic-dependent, not a given. Worth revisiting per-agent, not as a blanket architecture change, once there's a concrete pain point each one would fix.
+- **A stronger fallback when the algorithm agent's local model can't do it.** Right now 3 failed attempts is a hard stop — no escalation to a paid model. Whether that's worth adding depends on how often it actually happens in practice, not on the one topic (insertion sort) that's failed so far.
 
 ---
 
