@@ -1,0 +1,310 @@
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+import * as esbuild from "esbuild";
+
+import { getAlgorithm, registerGenerated, type AlgorithmEntry } from "./index";
+import type { Operation } from "./types";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const RUNNER_PATH = join(ROOT, "src", "algorithms", "sandboxRunner.js");
+const GENERATED_DIR = join(ROOT, "src", "algorithms", "generated");
+if (!existsSync(GENERATED_DIR)) mkdirSync(GENERATED_DIR, { recursive: true });
+
+export interface GenerateAlgorithmInput {
+  name: string;
+  description: string;
+  code: string; // TypeScript source defining `function run(trace: TracedArray): void`
+  input: { array: number[] };
+}
+
+export interface GenerateAlgorithmResult {
+  operations: Operation[];
+  summary: string;
+  warnings: string[];
+}
+
+export class GenerateAlgorithmError extends Error {}
+
+// Rough expected compare-count class for names we have real prior
+// knowledge of — deliberately small and best-effort. An unrecognized
+// name skips this check silently rather than guessing; this exists
+// specifically to catch the failure mode that motivated this feature: a
+// slower algorithm (e.g. bubble sort) submitted under a faster
+// algorithm's name (e.g. "mergeSort"). Normalized to lowercase with
+// non-letters stripped before lookup.
+const EXPECTED_COMPLEXITY: Record<string, "nlogn"> = {
+  mergesort: "nlogn",
+  quicksort: "nlogn",
+  heapsort: "nlogn",
+};
+
+function normalizeName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z]/g, "");
+}
+
+// Runs generated code in an isolated child process (PLAN.md's Phase A
+// codegen redesign): the LLM never emits an Operation directly, it
+// writes ordinary code against the TracedArray contract (trace.ts), and
+// this function is the only thing that actually executes it — the
+// operation log is a mechanical record of real execution, not something
+// the model had to get right by construction. Two independent
+// isolation layers, both confirmed live against this Node version: the
+// child is spawned with `--permission` and no --allow-fs-* flags (blocks
+// filesystem access at the runtime level even if the vm sandbox below
+// had a gap), and inside the child, vm.Script's `timeout` option
+// genuinely aborts a synchronous infinite loop (V8's execution-interrupt
+// mechanism), not just a cooperative check.
+interface SandboxRunResult {
+  operations: Operation[];
+  result: number[];
+}
+
+// No --allow-fs-* flags at all — the runner talks over stdin/stdout
+// only, never touches the filesystem, so the permission model can stay
+// at its strictest (deny everything) rather than carving out an
+// allowance nothing actually needs. Confirmed live: node's own
+// bootstrap loading of the entry script file doesn't require
+// --allow-fs-read itself; that flag only gates fs *calls* made by JS
+// code after startup.
+//
+// Uses spawn(), not execFile() — execFile's `input` option only exists
+// on the *Sync variant; the async one silently ignores it, so stdin
+// must be written and closed by hand (found live: without this, the
+// child hangs waiting for stdin it's never given).
+function runInSandbox(transpiledCode: string, array: number[]): Promise<SandboxRunResult> {
+  const stdinPayload = JSON.stringify({ code: transpiledCode, array });
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--permission", RUNNER_PATH], {
+      env: {}, // no inherited secrets — the sandbox never sees .env
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+
+    const killTimer = setTimeout(() => child.kill("SIGKILL"), 8_000); // headroom over the runner's own 5s vm timeout
+
+    child.on("error", (spawnErr) => {
+      clearTimeout(killTimer);
+      reject(new GenerateAlgorithmError(`failed to start sandbox: ${spawnErr.message}`));
+    });
+    child.on("close", (code) => {
+      clearTimeout(killTimer);
+      if (code !== 0) {
+        let message = out || err || `sandbox exited with code ${code}`;
+        try {
+          message = JSON.parse(out).error ?? message;
+        } catch {
+          // out wasn't JSON — keep the fallback message above.
+        }
+        reject(new GenerateAlgorithmError(`sandboxed execution failed: ${message}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(out));
+      } catch {
+        reject(new GenerateAlgorithmError(`sandbox produced unparseable output: ${out.slice(0, 500)}`));
+      }
+    });
+
+    child.stdin.write(stdinPayload);
+    child.stdin.end();
+  });
+}
+
+export async function generateAndValidateAlgorithm(req: GenerateAlgorithmInput): Promise<GenerateAlgorithmResult> {
+  const key = normalizeName(req.name);
+  if (!key) throw new GenerateAlgorithmError("algorithm name must not be empty");
+
+  // Registry entries are last-write-wins (registry.set) — without this
+  // guard, generated code named e.g. "binarySearch" would silently
+  // replace the hand-written, trusted implementation of that name.
+  const existing = getAlgorithm(key);
+  if (existing && !existing.generated) {
+    throw new GenerateAlgorithmError(
+      `"${req.name}" collides with an existing hand-written algorithm — call list_algorithms and use it directly instead of generating a new one under the same name.`,
+    );
+  }
+
+  // Fast path: this name was already generated, validated, and cached in
+  // a previous run (or earlier in this same process) — run the trusted
+  // cached implementation directly instead of re-sandboxing submitted
+  // code. Every request for the same algorithm after the first is then
+  // exactly as deterministic and fast as a hand-written one.
+  if (existing) {
+    const result = existing.run(req.input as never);
+    return {
+      operations: result.operations,
+      summary: result.summary,
+      warnings: [],
+    };
+  }
+
+  let transpiled: string;
+  try {
+    transpiled = esbuild.transformSync(req.code, { loader: "ts" }).code;
+  } catch (err) {
+    throw new GenerateAlgorithmError(`code does not compile as TypeScript: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  const parsed = await runInSandbox(transpiled, req.input.array);
+  const warnings: string[] = [];
+
+  // Validator 1: result correctness. Phase A only supports "sorts a
+  // number array" — the only class with a cheap, unambiguous oracle.
+  const expectedSorted = [...req.input.array].sort((a, b) => a - b);
+  if (JSON.stringify(parsed.result) !== JSON.stringify(expectedSorted)) {
+    throw new GenerateAlgorithmError(
+      `the algorithm's output is not correctly sorted — got [${parsed.result.join(", ")}], expected [${expectedSorted.join(", ")}]. Fix the implementation, don't just relabel it.`,
+    );
+  }
+
+  // Validator 2: complexity-class sanity, by *measured growth rate*, not
+  // a single-point threshold. At the small n this project actually uses
+  // (5-10 elements for a 30s video), n·log(n) and n² haven't diverged
+  // enough for any fixed multiplier on one run's compare count to
+  // reliably tell them apart — confirmed live: a real bubble sort at
+  // n=10 (45 compares) sat comfortably under a "generous 4x" n·log(n)
+  // bound (133), the exact false negative this check exists to prevent.
+  // Instead, run the *same* code again against a synthetically larger
+  // array and compare how the compare-count actually grew against how
+  // each candidate complexity class predicts it should grow — n·log(n)
+  // vs n² pull apart sharply once n has room to grow, regardless of
+  // constant factors.
+  const expectedClass = EXPECTED_COMPLEXITY[key];
+  if (expectedClass === "nlogn") {
+    const n1 = req.input.array.length;
+    const compareCount1 = parsed.operations.filter((o) => o.type === "compare").length;
+    if (n1 >= 2 && compareCount1 > 0) {
+      const n2 = Math.max(n1 * 4, 40);
+      const syntheticArray = Array.from({ length: n2 }, (_, i) => n2 - i); // worst-case-ish: descending
+      const scaled = await runInSandbox(transpiled, syntheticArray);
+      const compareCount2 = scaled.operations.filter((o) => o.type === "compare").length;
+
+      const nlognRatio = (n2 * Math.log2(n2)) / (n1 * Math.log2(n1));
+      const n2Ratio = (n2 / n1) ** 2;
+      const actualRatio = compareCount2 / compareCount1;
+      // Geometric mean of the two candidate ratios: closer to whichever
+      // model actually matches, regardless of the absolute scale.
+      const midpoint = Math.sqrt(nlognRatio * n2Ratio);
+
+      if (actualRatio > midpoint) {
+        warnings.push(
+          `"${req.name}" is expected to scale like n·log(n) (~${nlognRatio.toFixed(1)}x when n grows from ${n1} to ${n2}), but its compare count actually grew ~${actualRatio.toFixed(1)}x — much closer to n² (~${n2Ratio.toFixed(1)}x). Double-check this is really ${req.name} and not a slower algorithm mislabeled.`,
+        );
+      }
+    }
+  }
+
+  await cacheGeneratedAlgorithm(req, key);
+  rebuildManifest();
+
+  // Load the file we just wrote and register it in-memory directly —
+  // this dynamic import is fine here (unlike algorithms/index.ts, this
+  // file is never reachable from Remotion's webpack-bundled render path,
+  // only from server.ts's plain Node process), and means a second
+  // request for the same algorithm within this same process also skips
+  // the sandbox, not just after the next restart's static manifest load.
+  const mod: Record<string, unknown> = await import(pathToFileURL(join(GENERATED_DIR, `${key}.ts`)).href);
+  const run = mod[key];
+  if (typeof run === "function") {
+    registerGenerated(key, req.description, run as AlgorithmEntry["run"]);
+  }
+
+  return {
+    operations: parsed.operations,
+    summary: `Ran the generated "${req.name}" implementation on ${req.input.array.length} elements; result: [${parsed.result.join(", ")}].`,
+    warnings,
+  };
+}
+
+async function cacheGeneratedAlgorithm(req: GenerateAlgorithmInput, key: string): Promise<void> {
+  const filePath = join(GENERATED_DIR, `${key}.ts`);
+  if (existsSync(filePath)) return; // first validated submission wins; don't clobber a trusted file
+
+  const escapedDescription = req.description.replace(/\*\//g, "*\\/");
+  const contents = `// AUTO-GENERATED and validated by AlgoReel's codegen path
+// (algoreel-mcp/src/algorithms/sandbox.ts) on ${new Date().toISOString()}.
+// ${escapedDescription}
+//
+// Validated once via sandboxed execution (result-correctness +
+// complexity-class checks — see sandbox.ts) before being cached here.
+// From this point on it's a real, permanent algorithm file, run
+// in-process like any hand-written one — no further sandboxing on load.
+import { createTracedArray } from "../trace";
+import type { AlgorithmResult } from "../types";
+import type { TracedArray } from "../trace";
+
+export const DESCRIPTION = ${JSON.stringify(req.description)};
+
+export interface GeneratedInput {
+  array: number[];
+}
+
+${req.code}
+
+export function ${key}({ array }: GeneratedInput): AlgorithmResult {
+  const { trace, operations } = createTracedArray(array);
+  run(trace);
+  return { operations, summary: "Ran the generated \\"${req.name}\\" implementation on " + array.length + " elements." };
+}
+`;
+  // Re-ensured here, not just at module load — a test (or a long-running
+  // process) that clears the directory shouldn't take down every
+  // subsequent generation attempt.
+  if (!existsSync(GENERATED_DIR)) mkdirSync(GENERATED_DIR, { recursive: true });
+  writeFileSync(filePath, contents);
+}
+
+// Regenerates generated/manifest.ts in full from whatever .ts files
+// currently exist in this directory — see manifest.ts's own header
+// comment for why this has to be static imports rather than the runtime
+// directory scan an earlier version of this used (broke every Remotion
+// render — see that comment for the exact error).
+function rebuildManifest(): void {
+  const keys = readdirSync(GENERATED_DIR)
+    .filter((f) => f.endsWith(".ts") && f !== "manifest.ts")
+    .map((f) => f.replace(/\.ts$/, ""));
+
+  const imports = keys.map((k) => `import { ${k}, DESCRIPTION as ${k}_DESCRIPTION } from "./${k}";`).join("\n");
+  const entries = keys.map((k) => `  ${k}: { description: ${k}_DESCRIPTION, run: ${k} },`).join("\n");
+
+  const contents = `// AUTO-MAINTAINED by sandbox.ts — regenerated in full every time a new
+// algorithm is generated and cached, listing every file in this
+// directory as a plain static import.
+//
+// This has to be static imports, not a runtime directory scan
+// (readdirSync + dynamic import()) — algorithms/index.ts, which imports
+// this file, is also on Remotion's render path (remotion/buildTimeline.ts
+// -> algorithms/index.ts -> runAlgorithm), and that path gets bundled by
+// webpack for execution inside a headless-Chrome context, not plain
+// Node. Confirmed live: adding Node fs/dynamic-import to that shared
+// module broke every render with "UnhandledSchemeError: Reading from
+// 'node:fs' is not handled by plugins" — a browser-context bundle simply
+// can't include Node builtins, and can't resolve a dynamic import()
+// whose path isn't known until runtime either. A plain object of static
+// imports is something webpack (and Node/tsx) can both bundle exactly
+// the same way, so a generated algorithm works identically whether it's
+// the long-lived MCP server or a fresh \`npx remotion render\` process
+// that needs it.
+import type { AlgorithmResult } from "../types";
+
+export interface GeneratedManifestEntry {
+  description: string;
+  run: (input: { array: number[] }) => AlgorithmResult;
+}
+
+${imports}
+
+export const GENERATED: Record<string, GeneratedManifestEntry> = {
+${entries}
+};
+`;
+  writeFileSync(join(GENERATED_DIR, "manifest.ts"), contents);
+}

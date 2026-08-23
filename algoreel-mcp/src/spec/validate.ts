@@ -1,4 +1,4 @@
-import { runAlgorithm } from "../algorithms/index";
+import { getAlgorithm, runAlgorithm } from "../algorithms/index";
 import { splitPrimarySteps } from "./beats";
 import { storySpecSchema } from "./schema";
 import type { StorySpec } from "./types";
@@ -20,6 +20,24 @@ export function validateSpec(candidate: unknown): ValidationResult {
   }
 
   const spec = parsed.data as StorySpec;
+
+  // Second validation pass, now that the base shape is confirmed: is
+  // `algorithm` actually a registered name, and does `input` match what
+  // *that specific* algorithm expects? This replaced a discriminatedUnion
+  // that hardcoded exactly 3 algorithm literals — see spec/types.ts's
+  // StorySpec comment for why. A generated algorithm's entry carries the
+  // same kind of inputSchema a hand-written one does, so this one lookup
+  // covers both without needing to know which kind it is.
+  const entry = getAlgorithm(spec.algorithm);
+  if (!entry) {
+    return { valid: false, errors: [`algorithm: unknown algorithm "${spec.algorithm}" — call list_algorithms first`] };
+  }
+  const inputParsed = entry.inputSchema.safeParse(spec.input);
+  if (!inputParsed.success) {
+    const errors = inputParsed.error.issues.map((issue) => `input.${issue.path.join(".") || "(root)"}: ${issue.message}`);
+    return { valid: false, errors };
+  }
+
   const errors: string[] = [...semanticErrors(spec)];
   return { valid: errors.length === 0, errors };
 }
@@ -27,8 +45,12 @@ export function validateSpec(candidate: unknown): ValidationResult {
 function semanticErrors(spec: StorySpec): string[] {
   const errors: string[] = [];
 
+  // These two checks are genuinely specific to these named algorithms'
+  // semantics (a generic array-sorting algorithm has no such
+  // "must already be sorted" precondition) — they stay name-keyed, unlike
+  // checkRender.ts's layout checks, which generalized to input *shape*.
   if (spec.algorithm === "binarySearch") {
-    const { array } = spec.input;
+    const array = spec.input.array as number[];
     for (let i = 1; i < array.length; i++) {
       if (array[i]! < array[i - 1]!) {
         errors.push(`input.array must be sorted ascending for binarySearch (found ${array[i - 1]} before ${array[i]})`);
@@ -38,7 +60,9 @@ function semanticErrors(spec: StorySpec): string[] {
   }
 
   if (spec.algorithm === "bfs") {
-    const { nodes, edges, start } = spec.input;
+    const nodes = spec.input.nodes as string[];
+    const edges = spec.input.edges as [string, string][];
+    const start = spec.input.start as string;
     if (!nodes.includes(start)) {
       errors.push(`input.start ("${start}") must be one of input.nodes`);
     }

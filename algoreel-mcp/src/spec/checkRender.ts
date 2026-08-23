@@ -36,11 +36,17 @@ export interface CheckRenderResult {
 export function checkRender(spec: StorySpec): CheckRenderResult {
   const failures: Check[] = [];
 
-  if (spec.algorithm === "binarySearch" || spec.algorithm === "bubbleSort") {
-    failures.push(...arrayWidthChecks(spec.input.array.length));
+  // Keyed off input *shape*, not algorithm name — was `spec.algorithm ===
+  // "binarySearch" || "bubbleSort"` / `"bfs"` before the codegen redesign
+  // (spec/types.ts's StorySpec comment). A newly generated array
+  // algorithm (algoreel-mcp/src/algorithms/index.ts's dynamic registry)
+  // has an `input.array` exactly like the hand-written ones do, and gets
+  // this same check for free without checkRender needing to know its name.
+  if (Array.isArray(spec.input.array)) {
+    failures.push(...arrayWidthChecks((spec.input.array as unknown[]).length));
   }
-  if (spec.algorithm === "bfs") {
-    const overlap = graphOverlapCheck(spec.input.nodes.length);
+  if (Array.isArray(spec.input.nodes)) {
+    const overlap = graphOverlapCheck((spec.input.nodes as unknown[]).length);
     if (overlap) failures.push(overlap);
   }
 

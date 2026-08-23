@@ -10,11 +10,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { ALGORITHMS, runAlgorithmByName, type AlgorithmName } from "./algorithms/index";
+import { getAlgorithm, listAlgorithms, runAlgorithmByName } from "./algorithms/index";
+import { generateAndValidateAlgorithm, GenerateAlgorithmError } from "./algorithms/sandbox";
+import type { Operation } from "./algorithms/types";
 import { splitPrimarySteps } from "./spec/beats";
 import { checkRender } from "./spec/checkRender";
 import { sampleFrames } from "./render/frameSampler";
-import { ALGORITHM_INPUT_SCHEMAS } from "./spec/schema";
 import { validateSpec } from "./spec/validate";
 import type { StorySpec } from "./spec/types";
 import { buildTimeline } from "../remotion/buildTimeline";
@@ -47,13 +48,15 @@ function text(value: string, isError = false) {
 server.registerTool(
   "list_algorithms",
   {
-    description: "List the algorithms available to build a StorySpec around, with their input shapes.",
+    description:
+      "List the algorithms available to build a StorySpec around, with their input shapes. Includes both hand-written algorithms and any previously generated-and-validated ones (see run_algorithm's {name, description, code} form) — a name already listed here should always be run via {algorithm, input}, never regenerated.",
   },
   async () => {
-    const list = Object.values(ALGORITHMS).map(({ name, description, inputHint }) => ({
+    const list = listAlgorithms().map(({ name, description, inputHint, generated }) => ({
       name,
       description,
       input: inputHint,
+      generated,
     }));
     return text(JSON.stringify(list, null, 2));
   },
@@ -115,30 +118,79 @@ server.registerTool(
   "run_algorithm",
   {
     description:
-      "Run a deterministic algorithm on a given input and get back a summary of what happened, without writing a video. Useful for sanity-checking an input (e.g. the search actually finds the target) before writing narration around it. The returned primaryStepCount is the maximum number of \"op:N\" narration beats the StorySpec can use — more than that and validate_spec will reject it.",
+      "Run an algorithm on a given input and get back a summary of what happened, without writing a video. Useful for sanity-checking an input (e.g. the search actually finds the target) before writing narration around it. The returned primaryStepCount is the maximum number of \"op:N\" narration beats the StorySpec can use — more than that and validate_spec will reject it.\n\n" +
+      "Two ways to call this:\n" +
+      "1. {algorithm, input} — for a name list_algorithms already returned.\n" +
+      "2. {name, description, code, input} — when nothing in list_algorithms genuinely matches the topic. Write TypeScript defining exactly one function, `function run(trace: TracedArray): void`, where TracedArray is:\n" +
+      "     interface TracedArray {\n" +
+      "       readonly length: number;\n" +
+      "       get(i: number): number;\n" +
+      "       set(i: number, value: number): void;\n" +
+      "       compare(i: number, j: number): -1 | 0 | 1;\n" +
+      "       swap(i: number, j: number): void;\n" +
+      "       toArray(): number[];\n" +
+      "     }\n" +
+      "   input is currently array-only: { array: number[] }. Your code runs for real in a sandbox — the animation is a mechanical recording of what it actually did, not something you write directly, so a wrong implementation shows up as a wrong result, not a wrong description.\n" +
+      "   Route every real comparison your algorithm makes through trace.compare(i, j) — not a raw < or > on values you already fetched with trace.get(). Comparing local copies (e.g. in a merge step) is fine for the real decision, but call trace.compare() on the corresponding positions too, purely so the video shows a comparison happening; skipping it entirely still sorts correctly but the video will show zero comparison highlights.\n" +
+      "   On success this becomes a permanent algorithm — a later run_algorithm({algorithm: name, input}) or a topic that matches it again reuses the exact same validated code, no regeneration.",
     inputSchema: {
-      algorithm: z.enum(Object.keys(ALGORITHMS) as [AlgorithmName, ...AlgorithmName[]]),
+      algorithm: z.string().optional(),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      code: z.string().optional(),
       input: z.record(z.string(), z.unknown()),
     },
   },
-  async ({ algorithm, input }) => {
-    const inputSchema = ALGORITHM_INPUT_SCHEMAS[algorithm];
-    const parsedInput = inputSchema.safeParse(input);
-    if (!parsedInput.success) {
-      const errors = parsedInput.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`);
-      return text(JSON.stringify({ error: "invalid input", details: errors }, null, 2), true);
-    }
+  async ({ algorithm, name, description, code, input }) => {
+    let resolvedAlgorithm: string;
+    let result: { operations: Operation[]; summary: string };
+    let warnings: string[] = [];
 
-    let result;
-    try {
-      result = runAlgorithmByName(algorithm, parsedInput.data);
-    } catch (err) {
-      return text(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }, null, 2), true);
+    if (name && code) {
+      // The codegen path (PLAN.md's Phase A) — see sandbox.ts for the
+      // sandboxing/validation this goes through before it's trusted.
+      // generateAndValidateAlgorithm already returns the full
+      // operations/summary (from the sandboxed run, or from the cached
+      // implementation if this name was already generated earlier), so
+      // there's no separate re-run — the result below came from that one
+      // execution, whichever path it took.
+      resolvedAlgorithm = name;
+      try {
+        const generated = await generateAndValidateAlgorithm({
+          name,
+          description: description ?? "",
+          code,
+          input: input as { array: number[] },
+        });
+        result = { operations: generated.operations, summary: generated.summary };
+        warnings = generated.warnings;
+      } catch (err) {
+        const message = err instanceof GenerateAlgorithmError ? err.message : err instanceof Error ? err.message : String(err);
+        return text(JSON.stringify({ error: message }, null, 2), true);
+      }
+    } else if (algorithm) {
+      resolvedAlgorithm = algorithm;
+      const entry = getAlgorithm(resolvedAlgorithm);
+      if (!entry) {
+        return text(JSON.stringify({ error: `unknown algorithm "${resolvedAlgorithm}" — call list_algorithms first` }, null, 2), true);
+      }
+      const parsedInput = entry.inputSchema.safeParse(input);
+      if (!parsedInput.success) {
+        const errors = parsedInput.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`);
+        return text(JSON.stringify({ error: "invalid input", details: errors }, null, 2), true);
+      }
+      try {
+        result = runAlgorithmByName(resolvedAlgorithm, parsedInput.data);
+      } catch (err) {
+        return text(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }, null, 2), true);
+      }
+    } else {
+      return text(JSON.stringify({ error: "provide either {algorithm, input} or {name, description, code, input}" }, null, 2), true);
     }
 
     // Never hand the full operation log to the model (PLAN.md §5 sizing
     // constraint) — write it out and return a path plus the summary.
-    const opsPath = join(OPERATIONS_DIR, `${algorithm}-${randomUUID().slice(0, 8)}.json`);
+    const opsPath = join(OPERATIONS_DIR, `${resolvedAlgorithm}-${randomUUID().slice(0, 8)}.json`);
     writeFileSync(opsPath, JSON.stringify(result.operations, null, 2));
 
     // The narration's "op:N" beat count must not exceed this — a surplus
@@ -150,10 +202,18 @@ server.registerTool(
 
     return text(
       JSON.stringify(
-        { summary: result.summary, operationCount: result.operations.length, primaryStepCount, operationsPath: opsPath },
+        {
+          summary: result.summary,
+          operationCount: result.operations.length,
+          primaryStepCount,
+          operationsPath: opsPath,
+          algorithm: resolvedAlgorithm,
+          ...(warnings.length > 0 ? { warnings } : {}),
+        },
         null,
         2,
       ),
+      warnings.length > 0,
     );
   },
 );
@@ -282,6 +342,10 @@ server.registerTool(
 );
 
 async function main() {
+  // Anything sandbox.ts previously generated and cached is already
+  // registered by now — algorithms/index.ts loads it via a plain static
+  // import of generated/manifest.ts, so it's populated as part of this
+  // module graph loading at all, not a separate async step to await here.
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

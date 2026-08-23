@@ -15,12 +15,19 @@ decides the story, deterministic code decides what happens.**
 
 An LLM never touches what an algorithm actually does — `binarySearch` and
 `bubbleSort` are plain, tested TypeScript functions that emit an operation
-log (`init`, `highlight`, `compare`, `swap`, `discard`, `done`, ...). An
-agent's job is entirely upstream and downstream of that: pick a topic,
-write the hook and narration, choose emphasis words and pacing, decide
-whether a render passed QA and what to retry. It never invents a frame
-number, a comparison result, or a sorted position. See `PLAN.md` §1-2 for
-the full reasoning.
+log (`init`, `highlight`, `compare`, `swap`, `write`, `discard`, `done`,
+...). An agent's job is entirely upstream and downstream of that: pick a
+topic, write the hook and narration, choose emphasis words and pacing,
+decide whether a render passed QA and what to retry. It never invents a
+frame number, a comparison result, or a sorted position. See `PLAN.md`
+§1-2 for the full reasoning.
+
+The boundary moved up one level for algorithms outside the hand-written
+set (see Phase A below): an agent can now *write* an algorithm
+implementation, but it never asserts what that code does — the code
+actually runs, sandboxed, on real input, and the operation log is a
+mechanical record of what really happened, not something the agent
+narrates into existence.
 
 ## Layout
 
@@ -210,6 +217,57 @@ Following the phased plan in `PLAN.md` §9:
   separate file descriptor (`3<<<`) instead of stdin, leaving stdin free
   for the actual interactive question.
 
+- **Phase A — generated algorithms, sandboxed and verified.** Found live
+  that the 3 hand-written algorithms don't scale: a topic with no match
+  (`"reversing a linked list"`) made the agent force `bubbleSort` into
+  the slot with misleading narration ("just like flipping a pointer").
+  Hand-writing every algorithm forever isn't feasible, but the
+  determinism boundary still has to hold — so instead of hand-coding the
+  long tail, `script.yaml`'s agent can now write a real TypeScript
+  implementation against a `TracedArray` contract
+  (`get`/`set`/`compare`/`swap`/`toArray`, each logging a real operation
+  as a side effect) for any array-shaped algorithm `list_algorithms`
+  doesn't already have. `run_algorithm`'s extended `{name, description,
+  code, input}` form runs that code for real in a sandboxed child
+  process — Node's `--permission` flag plus a `vm.Script` timeout,
+  both confirmed live to actually hold (a real infinite loop is killed
+  at 5s; `require()` and `process.env` are both undefined) — then checks
+  it two ways before trusting it: result correctness against a native
+  reference sort, and a complexity-class sanity check that runs the
+  submission twice (at the real size and a synthetic 4x-larger one) and
+  compares the *growth rate* of its compare-count against what O(n log n)
+  vs O(n²) predict, rather than a single-point threshold (confirmed live
+  that a single-point check misses a real bubble sort at n=10 entirely —
+  growth-rate comparison catches it). Once validated, the code is cached
+  as a real, permanent file in `algorithms/generated/`, indistinguishable
+  from a hand-written algorithm on every later request for that name — no
+  re-sandboxing, no LLM involved at all after the first successful run.
+
+  The registry that made this possible (`algorithms/index.ts`) is now a
+  dynamic map seeded from a statically-imported manifest rather than an
+  exhaustive switch closed over 3 names — required because
+  `algorithms/index.ts` is transitively bundled by Remotion's webpack
+  render path, which can't resolve `node:fs`/`node:path` or a
+  runtime-computed dynamic `import()` (found live via a real
+  `UnhandledSchemeError`, fixed by generating a plain-static-import
+  manifest file instead of scanning the directory at render time).
+
+  Verified live end to end: `./preview.sh "merge sort"` produces a real
+  generated, validated `mergesort.ts` and a real rendered mp4. Re-testing
+  the original bug (`./preview.sh "reversing a linked list"`) now
+  produces an honestly-named result — "reversing an array with the
+  two-pointer technique" — rather than a mismatched algorithm dressed up
+  as the original request; `script.yaml` explicitly requires this
+  honesty (topic and narration must describe what was actually
+  implemented) after a first fix caught the *code* but not the
+  narration still claiming to be "how linked list reversal works."
+
+  **Deliberately out of scope for this phase** (see `PLAN.md` §10): graph
+  algorithms (no `TracedGraph` yet), linked lists/trees (need a new
+  visual primitive, not just new operations), and generalizing beyond
+  DSA entirely — all raised in discussion, all premature before this
+  narrower array-algorithm mechanism had real evidence behind it.
+
 ## Quickstart
 
 ```
@@ -324,3 +382,10 @@ already defined but unused. Rendering picks `ArrayView` or `GraphView`
 based on the spec's algorithm; both fold from the same operation log
 through the same `VisualState`, `buildTimeline`, and beat-grouping
 pipeline with no other special-casing.
+
+Beyond those three, any array-shaped algorithm (sorting, searching, two
+pointers, ...) can be added without touching this repo by hand — see
+Phase A above. `algorithms/generated/` holds whatever's been validated
+and cached so far; `list_algorithms`' `generated: true` field tells the
+agent (and you) which entries came from that path versus were
+hand-written.

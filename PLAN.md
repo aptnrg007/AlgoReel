@@ -40,6 +40,18 @@ If an LLM is ever responsible for "what does bubble sort do on `[5,2,8,1,4]`", t
 
 Concretely: the agent emits `{"algorithm": "bubbleSort", "input": [5,2,8,1,4]}`. Your TypeScript runs it and emits the operation log. The agent never touches the log's contents.
 
+**The boundary moved up one level, not away.** Hand-writing every
+algorithm forever doesn't scale (found live: asked for a topic with no
+matching hand-written algorithm, the agent forced the closest one in with
+misleading narration — bubble sort's swaps described as linked-list
+pointer changes). The fix keeps the same principle: the agent may now
+*write* an algorithm implementation, but it never gets to assert what
+that code does — the code actually runs, in a sandbox, on real input, and
+the operation log is a mechanical record of what really happened. A wrong
+implementation shows up as a wrong result or a flagged complexity
+mismatch, not as something fixable by writing more convincing narration.
+See §5's `run_algorithm` and §10.
+
 ---
 
 ## 3. Architecture
@@ -208,6 +220,14 @@ algoreel.validate_spec(spec)
 algoreel.run_algorithm(name, input)
   -> { operations: Operation[], summary: string }
   # pure deterministic. NO LLM anywhere in here.
+  #
+  # Built: also accepts {name, description, code, input} for an algorithm
+  # not in list_algorithms — code is real TypeScript, executed for real
+  # in a sandboxed child process (Node's --permission flag + a
+  # vm.Script timeout, both confirmed live), checked for result
+  # correctness and complexity-class plausibility, then cached as a
+  # real, permanent algorithm file — every later request for that name
+  # reuses it directly, no re-sandboxing. See §2 and §10.
 
 algoreel.generate_voice(narration)
   -> { audioPath, perBeatDurations: {beat: seconds}, totalSec }
@@ -481,9 +501,39 @@ Chosen for visual variety, not difficulty. Three that look different from each o
 2. **Bubble sort** — array, comparison, swap
 3. **BFS** — graph, nodes, edges, queue
 
-Then the long tail is cheap: linear search, selection sort, insertion sort, DFS, two pointers, sliding window, stack, queue, BST insert, merge sort.
+**Built (Phase A): the long tail is now mostly codegen, not hand-writing.**
+Found live that hand-writing every algorithm doesn't scale — a topic with
+no matching entry (e.g. "reversing a linked list") made the agent force
+the closest existing algorithm into the slot with misleading narration
+(bubble sort's swaps described as pointer changes). The fix moves the
+determinism boundary up one level rather than abandoning it: for any
+array-shaped algorithm (sorting/searching — linear search, selection
+sort, insertion sort, two pointers, sliding window, merge sort, quicksort,
+...), `script.yaml`'s agent can now write a real implementation against a
+`TracedArray` contract instead of requiring a hand-written entry first.
+It's executed for real in a sandboxed child process (Node's
+`--permission` flag plus a `vm.Script` timeout — both confirmed live to
+actually hold, including blocking `require()` and `process.env`), checked
+for result correctness (against a native reference sort) and
+complexity-class plausibility (compare-count growth rate at two input
+sizes, not a single-point threshold — confirmed live this is what it
+takes to catch a disguised O(n²) sort submitted under an O(n log n) name),
+and only then cached as a real, permanent file in
+`algorithms/generated/`, indistinguishable from a hand-written one on
+every later request for that name. See §2, §5's `run_algorithm`, and
+`algoreel-mcp/src/algorithms/sandbox.ts`.
 
-Avoid early: quicksort (recursion + partitioning is two hard things), anything DP (tables are a whole separate primitive), anything with a call stack visualisation.
+Graph algorithms (DFS, Dijkstra, BST insert, stack/queue) are **not**
+covered by this — Phase A is array-only. A `TracedGraph` equivalent is a
+natural follow-up but hasn't been built. Structures needing a new visual
+primitive (linked lists, trees) remain fully out of scope regardless of
+codegen — `script.yaml` is instructed to say so honestly rather than
+force a mismatched array algorithm into that slot, the same failure mode
+this phase already fixed once, one level more subtle (an honestly-coded
+algorithm can still get a dishonest narration wrapped around it — also
+found live and fixed, see `script.yaml`'s STATUS comment).
+
+Avoid early: quicksort (recursion + partitioning is two hard things), anything DP (tables are a whole separate primitive), anything with a call stack visualisation. (These were "avoid early" for *hand-writing*; codegen makes quicksort specifically no harder than merge sort to add now, since the agent — not a human — writes the partitioning logic.)
 
 ---
 

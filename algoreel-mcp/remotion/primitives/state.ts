@@ -75,6 +75,11 @@ export function applyOperation(state: VisualState, op: Operation): VisualState {
       array[op.j] = tmp;
       return { ...state, array };
     }
+    case "write": {
+      const array = [...state.array];
+      array[op.index] = op.value;
+      return { ...state, array };
+    }
     case "graph":
       return { ...state, nodes: op.nodes, edges: op.edges };
     case "enqueue":

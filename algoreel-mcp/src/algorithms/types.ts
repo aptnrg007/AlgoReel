@@ -3,6 +3,11 @@ export type Operation =
   | { type: "pointer"; name: string; index: number }
   | { type: "compare"; a: number; b: number; result: "lt" | "eq" | "gt" }
   | { type: "swap"; i: number; j: number }
+  // Writes an arbitrary computed value into a position — distinct from
+  // "swap" (which only ever exchanges two existing values). Needed for
+  // algorithms like merge sort whose merge step writes a value chosen
+  // from a temporary buffer, not one already living at that index.
+  | { type: "write"; index: number; value: number }
   | { type: "highlight"; indices: number[]; style: "focus" | "found" | "dead" }
   | { type: "discard"; from: number; to: number }
   // graph algorithms' analog of "init": declares the full node/edge set up
