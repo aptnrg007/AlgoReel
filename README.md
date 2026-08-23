@@ -62,7 +62,7 @@ Following the phased plan in `PLAN.md` §9:
   multi-round self-correction discipline at once — the one combination
   `algoreel-llama` (qwen3:8b) measurably couldn't hold, across repeated
   runs skipping `validate_spec`, looping unproductively, or answering
-  empty. Fixed by routing it to Google AI Studio's free-tier Gemini
+  empty. First fixed by routing it to Google AI Studio's free-tier Gemini
   instead of a paid API, via a **new native `gemini` provider added to
   AgentForge** (`internal/provider/gemini.go`) rather than its existing
   OpenAI-compat route — Gemini's thinking models attach an opaque
@@ -71,17 +71,51 @@ Following the phased plan in `PLAN.md` §9:
   turn; a second fix sanitizes tool schemas, since Gemini's function
   declarations reject standard JSON Schema keywords
   (`additionalProperties`, `propertyNames`, `$schema`) that a real MCP
-  tool schema actually emits. Both confirmed against the live API, not
-  just unit tests. Ran end-to-end on a topic outside the existing demo
-  set: the agent picked `bfs` on its own from an indirect description (no
-  algorithm named in the prompt), called `validate_spec` three times
-  fixing real errors, and only then answered — see
-  `algoreel-mcp/specs/bfs-party-intro-demo.json`. One run doesn't clear
-  PLAN.md §9's five-consecutive-topic exit bar yet, but it cleanly avoids
-  every qwen3 failure mode above. Also fixed along the way: `animate.yaml`
-  was missing the same "`targetDurationSec` is a sibling of `youtube`, not
-  nested inside it" warning `script.yaml` already had, which was sending
-  qwen3 into the identical unproductive loop on the render side.
+  tool schema actually emits. Both confirmed against the live API. Ran
+  end-to-end on a topic outside the existing demo set: the agent picked
+  `bfs` on its own from an indirect description (no algorithm named in
+  the prompt), called `validate_spec` three times fixing real errors, and
+  only then answered — see `algoreel-mcp/specs/bfs-party-intro-demo.json`.
+
+  Before giving up on a free/local path, tried giving `script.yaml` the
+  same scaffold that already makes `animate.yaml` reliable on qwen3: a
+  `run_algorithm` step before drafting, so the agent gets the real
+  `primaryStepCount` ceiling as a fact up front instead of discovering it
+  from a `validate_spec` rejection. It shifted *where* qwen3 failed (now
+  dying right after `run_algorithm` instead of right after
+  `list_algorithms`) but not *whether* — still only 1 success in 5
+  direct-topic trials (`bfs`, `binary search`, `bubble sort` x2, `linked
+  list`), the rest silently giving no final answer. This is decent
+  evidence the gap is a genuine multi-turn-tool-calling ceiling in the
+  model, not an instructions problem — no amount of scaffolding closed it.
+
+  The `run_algorithm` step is a real, provider-agnostic improvement
+  though (kept for every provider), and while adding it a second real
+  option showed up: **Anthropic now works too.** It first failed outright
+  with `tools.0.custom.name: String should match pattern
+  '^[a-zA-Z0-9_-]{1,128}$'` — AgentForge's MCP tool names are namespaced
+  `<server>.<tool>` with a dot, which Anthropic's tool-name schema
+  rejects, and unlike the `openai` provider (which already translates
+  dots via `toWireToolName`/`fromWireToolName`), `anthropic.go` had no
+  such translation. Fixed by applying that same round-trip to
+  `anthropic.go`'s four tool-name call sites. After that fix,
+  `claude-sonnet-5` went 3/3 clean on `script.yaml` — two indirect topics
+  plus one direct — each finishing in exactly 3 tool calls
+  (`list_algorithms` → `run_algorithm` → `validate_spec`, valid on the
+  first attempt). **`script.yaml` now defaults to Anthropic.**
+
+  A free/local-only variant, **`script.free.yaml`**, carries the Gemini
+  (default) and qwen3-via-Ollama (commented) config side by side with
+  real drawbacks documented in its own STATUS comment: Gemini's
+  20-requests/day cap on the non-lite model plus the native-provider
+  dependency above, and qwen3's 1-in-5 ceiling described above. Use it
+  only if avoiding a paid API key matters more than those tradeoffs.
+  3 consecutive clean runs on Anthropic is real progress toward PLAN.md
+  §9's five-consecutive-topic exit bar, but isn't the full five yet.
+  Also fixed along the way: `animate.yaml` was missing the same
+  "`targetDurationSec` is a sibling of `youtube`, not nested inside it"
+  warning `script.yaml` already had, which was sending qwen3 into the
+  identical unproductive loop on the render side.
 
 ## Quickstart
 
@@ -116,15 +150,27 @@ export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
 ./agentforge chat /path/to/AlgoReel/algoreel-agents/agents/animate.yaml
 ```
 
-Turn a bare topic into a validated StorySpec — `script.yaml` runs on
-Google AI Studio's free-tier Gemini via AgentForge's native `gemini`
-provider (get a key at https://aistudio.google.com/apikey; `script.yaml`'s
-comments show how to swap in Anthropic or xAI instead):
+Turn a bare topic into a validated StorySpec — `script.yaml` defaults to
+Anthropic's `claude-sonnet-5` (get a key at
+https://console.anthropic.com/settings/keys):
+
+```
+export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
+export ANTHROPIC_API_KEY=...
+./agentforge run /path/to/AlgoReel/algoreel-agents/agents/script.yaml \
+  -m "explain breadth-first search"
+```
+
+To avoid a paid API key, use **`script.free.yaml`** instead — same agent,
+running on Google AI Studio's free-tier Gemini via AgentForge's native
+`gemini` provider (get a key at https://aistudio.google.com/apikey) or
+fully local qwen3 via Ollama. See that file's STATUS comment and the
+Phase 3 status bullet above for the real tradeoffs before relying on it:
 
 ```
 export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
 export GOOGLE_API_KEY=...
-./agentforge run /path/to/AlgoReel/algoreel-agents/agents/script.yaml \
+./agentforge run /path/to/AlgoReel/algoreel-agents/agents/script.free.yaml \
   -m "explain breadth-first search"
 ```
 

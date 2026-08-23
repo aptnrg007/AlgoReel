@@ -286,7 +286,7 @@ The QA agent's job is to read the failure list and decide *what to change* — a
 
 Sketches; refine against real AgentForge YAML once the needed features land.
 
-**script.yaml** — no MCP tools except `list_algorithms` and `validate_spec`. Must emit valid StorySpec JSON. Model: needs to write well *and* hold a multi-round self-correction loop — a local model (qwen3:8b) measurably can't do both at once (see README's Phase 3 notes). Currently Google AI Studio's free-tier Gemini, via a native `gemini` provider added to AgentForge; Claude and xAI are documented drop-in alternatives in `script.yaml` itself.
+**script.yaml** — `list_algorithms`, `run_algorithm`, `validate_spec`. Must emit valid StorySpec JSON. Model: needs to write well *and* hold a multi-round self-correction loop — a local model (qwen3:8b) measurably can't do both at once, even with `run_algorithm` added as a scaffolding step (see README's Phase 3 notes). Currently Anthropic's `claude-sonnet-5`, verified 3/3 clean; a free/local-only variant, `script.free.yaml`, holds Google AI Studio's free-tier Gemini (via a native `gemini` provider added to AgentForge) or qwen3 via Ollama, with their drawbacks documented in that file.
 
 **animate.yaml** — `run_algorithm`, `generate_voice`, `render_preview`. Mostly mechanical; a local model can drive this once the tool schemas are tight.
 
@@ -332,17 +332,24 @@ Build `server.ts`. Register tools. Run `agentforge chat animate.yaml` and type "
 *This phase is where you discover your tool schemas are wrong.* Expect to rewrite them.
 
 ### Phase 3 — a real model provider for script.yaml
-Originally scoped as "Anthropic provider in AgentForge"; landed instead as
-a native Gemini provider (Google AI Studio's free tier, no API spend),
-since AgentForge's `openai` provider couldn't reach Gemini's OpenAI-compat
-endpoint through a full multi-turn tool loop — see README's Phase 3 notes
-for what that actually took. Anthropic remains a documented, tested
-drop-in alternative in `script.yaml` if Gemini's free tier or quality
-becomes a problem. Still blocks all vision QA (Phase 4) either way.
+Originally scoped as "Anthropic provider in AgentForge"; first landed as
+a native Gemini provider instead (Google AI Studio's free tier, no API
+spend), since AgentForge's `openai` provider couldn't reach Gemini's
+OpenAI-compat endpoint through a full multi-turn tool loop. Anthropic
+came back into play once a second AgentForge bug was found and fixed —
+its tool-name translation (`toWireToolName`/`fromWireToolName`) existed
+for the `openai` provider but not `anthropic.go`, so any dotted MCP tool
+name 400'd immediately — and now `script.yaml` defaults to
+`claude-sonnet-5`, verified 3/3 clean. Gemini (plus qwen3 via Ollama)
+lives on in `script.free.yaml` as the free/local-only option, with its
+drawbacks documented there. See README's Phase 3 notes for the full
+history, including a `run_algorithm` scaffolding step tried against
+qwen3 that didn't close its reliability gap. Still blocks all vision QA
+(Phase 4) either way.
 
 *Exit:* `script.yaml` produces valid StorySpec JSON on 5 consecutive
-topics without hand-editing. Verified once on a fresh topic so far, not
-yet the full 5.
+topics without hand-editing. 3 consecutive clean runs on Anthropic so
+far, not yet the full 5.
 
 ### Phase 4 — QA loop
 Deterministic checks, then vision. Agent retries on failure.

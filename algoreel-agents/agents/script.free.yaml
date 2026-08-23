@@ -1,50 +1,55 @@
-# STATUS: running on Anthropic's claude-sonnet-5 by default, via
-# AgentForge's anthropic provider. Verified live: 3/3 clean runs (two
-# indirect topics, one direct), each completing in exactly 3 tool calls —
-# list_algorithms -> run_algorithm -> validate_spec, valid on the very
-# first attempt, no retry loop needed. Needed one AgentForge fix first:
-# MCP tool names are namespaced "<server>.<tool>" (dots), which
-# Anthropic's tool-name schema rejects outright with a 400; the openai
-# provider already translated dots for its own wire format
-# (toWireToolName/fromWireToolName in internal/provider/openai.go), but
-# anthropic.go had no equivalent, so it sent Anthropic a name guaranteed
-# to be rejected. Fixed by applying that same translation to
-# anthropic.go's four tool-name call sites. Also: claude-sonnet-5 rejects
-# a `temperature` field outright (confirmed via a live 400), which is why
-# there isn't one below.
+# STATUS: free/local-only variant of script.yaml — same instructions,
+# tools, and approvals (copied, not shared: AgentForge has no YAML
+# include/inherit mechanism, so keep the two files' instructions/tools/
+# approvals/limits blocks in sync by hand if either changes), only the
+# model block differs. script.yaml (Anthropic's claude-sonnet-5) is the
+# recommended default; use this file only if avoiding a paid API key
+# matters more than the drawbacks below. Both real drawbacks were
+# measured live in this project, not assumed:
 #
-# A free/local-only alternative lives side by side in script.free.yaml —
-# same instructions and tools, only the model block differs. It runs on
-# Google AI Studio's free-tier Gemini (via AgentForge's native `gemini`
-# provider, added for this project — see PLAN.md §8) or fully local
-# qwen3 via Ollama, at the cost of real drawbacks documented in that
-# file's STATUS comment and in README.md's Phase 3 section: Gemini's
-# 20-requests/day cap on the non-lite model, and qwen3's multi-round
-# self-correction ceiling (only 1 of 5 direct-topic trials succeeded even
-# with the run_algorithm step below added — the rest silently gave no
-# final answer). Use this file unless you specifically need to avoid a
-# paid API key.
-name: script
+# - Gemini (the active model here): needs AgentForge's native `gemini`
+#   provider (internal/provider/gemini.go), not the generic openai
+#   provider against Gemini's OpenAI-compat endpoint — that combination
+#   breaks on the second turn of every tool-calling run, because
+#   Gemini's thinking models attach an opaque thoughtSignature to
+#   functionCall parts and 400 if a later turn replays one without it,
+#   and the openai provider's wire structs have nowhere to carry it. Also
+#   needs a tool-schema sanitizer, since Gemini's function declarations
+#   reject standard JSON Schema keywords ($schema, additionalProperties,
+#   propertyNames) that a real MCP tool schema emits. Both fixed already
+#   (see that provider file), but they're dependencies this file carries
+#   that script.yaml doesn't. On top of that, gemini-3.7-flash's free
+#   tier is capped at 20 requests/day (a hard daily cap, confirmed by
+#   polling every 15s for 5 minutes with no recovery) — gemini-flash-lite-
+#   latest has a separate quota bucket, which is why it's the name below.
+#
+# - qwen3:8b via Ollama (commented out below, fully local, zero API key):
+#   measurably cannot hold this agent's combination of open-ended
+#   authoring and multi-round validate_spec self-correction. Across
+#   repeated trials it skipped validate_spec entirely, looped
+#   unproductively re-misplacing targetDurationSec until max_turns, or —
+#   the dominant failure even after adding the run_algorithm step below —
+#   silently gave no final answer at all right after its first or second
+#   tool call. Best observed rate: 1 success in 5 direct-topic trials
+#   (bfs, binary search, bubble sort x2, linked list), all using this
+#   exact config. It's reliable for animate.yaml's more mechanical
+#   workflow (see that file's comments) — just not for this one. See
+#   README.md's Phase 3 section for the full writeup.
+name: script-free
 
 model:
-  provider: anthropic
-  name: claude-sonnet-5
-  api_key: ${ANTHROPIC_API_KEY}
-  # No temperature field — claude-sonnet-5 rejects it as a request
-  # parameter ("`temperature` is deprecated for this model").
-  #
-  # Alternatives, same config shape — switch by commenting/uncommenting,
-  # or just run script.free.yaml instead, which already has these wired
-  # up along with their tradeoffs (see that file and README.md):
-  # provider: gemini
-  # name: gemini-flash-lite-latest
-  # api_key: ${GOOGLE_API_KEY}
-  #
-  # provider: openai
-  # base_url: https://api.x.ai/v1
-  # name: <xAI model id>
-  # api_key: ${XAI_API_KEY}
-  #
+  provider: gemini
+  # gemini-3.7-flash's free tier is capped at 20 requests/day and this
+  # project burned through it during testing — gemini-flash-lite-latest
+  # (currently gemini-3.5-flash-lite) has a separate per-model quota
+  # bucket that was still available. Swap back to a non-lite Flash if
+  # authoring quality needs it and the daily quota has reset.
+  name: gemini-flash-lite-latest
+  api_key: ${GOOGLE_API_KEY}
+  temperature: 0.3
+  # Fully local, zero API key, but see the STATUS note above before
+  # relying on this for script.yaml's job — animate.yaml is where qwen3
+  # actually earns its keep:
   # provider: ollama
   # name: algoreel-llama
 
@@ -153,21 +158,13 @@ approvals:
 # recency over an earlier "call validate_spec first" rule. Removing
 # output.schema fixed it immediately — same behavior animate.yaml already
 # relies on (also no output.schema, also reliably calls validate_spec
-# several times). Worth an A/B now that Claude Sonnet 5 is the default
-# model — restore this and re-run; keep it only if validate_spec
-# discipline survives (and it would also finally strip the stray
-# ```json fences Claude wraps its answer in despite step 8 above):
-# output:
-#   schema: ./schemas/story-spec.json
-#   on_invalid: retry
-#   max_retries: 3
+# several times). Not revisiting this here — script.yaml (Anthropic) is
+# the file where a stronger model would make the A/B worth doing.
 
 limits:
-  max_turns: 25     # generous headroom for several validate_spec
-                     # correction rounds — Claude Sonnet 5 has only ever
-                     # needed 3 tool calls in testing, but this leaves
-                     # room for a harder topic or script.free.yaml's
-                     # weaker models
-  max_tokens: 6144   # generous headroom for a "thinking" model's trace,
-                      # which can run past 2500 tokens before the real
-                      # answer even starts
+  max_turns: 25     # room for several validate_spec correction rounds —
+                     # qwen3 typically needs more than a stronger model
+                     # would, and even Gemini has needed more than one
+                     # round on some topics
+  max_tokens: 6144   # qwen3's thinking trace alone can run past 2500
+                      # tokens before it even starts the real answer
