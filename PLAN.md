@@ -223,15 +223,34 @@ algoreel.check_render(spec)
   # spec + buildTimeline()'s existing timeline math, so it runs before
   # the expensive render, not after. See §7.
 
-algoreel.render_final(specPath)
-  -> { videoPath, durationSec, sizeBytes }
+algoreel.sample_frames(spec)
+  -> MCP content: alternating text labels + image blocks, one pair per
+     sampled frame (4-6 frames: hook, up to 4 steps, outro)
+  # Layer 2 vision QA, see §7. Built: also takes the spec, not a
+  # rendered video — renders its own stills via @remotion/renderer's
+  # programmatic API (bundle cached once per server process), no
+  # dependency on render_preview having run first.
+
+algoreel.render_final(spec)
+  -> { videoPath, durationSec, targetDurationSec, sizeBytes }
+  # Built: takes the spec directly, same deviation as check_render/
+  # sample_frames/render_preview above, for the same reason — every tool
+  # in this server takes a spec object, and nothing in the pipeline
+  # persists one to a path first. Same as render_preview minus
+  # --scale=0.5 (full 1080x1920 resolution) and a longer timeout.
 
 algoreel.get_analytics(videoIds)
   -> [{ id, views, avgViewPct, retentionCurve }]
+  # Phase 6, not built yet.
 
 youtube.upload(videoPath, title, description, tags, visibility)
   -> { videoId, url }
-  # ALWAYS behind approvals.require
+  # ALWAYS behind approvals.require. Built as a STUB (no Google Cloud
+  # OAuth project exists yet — §11): validates real YouTube constraints
+  # and returns a clearly-marked fake videoId/url, no network call. Lives
+  # in its own MCP server (algoreel-mcp/src/youtube-server.ts), separate
+  # from algoreel's — swapping in a real upload only ever touches that
+  # one file.
 ```
 
 **Sizing constraint:** `run_algorithm` on a 40-element sort returns hundreds of operations. Never hand the full log to the model — return `summary` plus a path, and let the renderer read the file. Tool results going into a 16k-context local model must stay small.
@@ -336,15 +355,15 @@ Sketches; refine against real AgentForge YAML once the needed features land.
 
 **qa.yaml** — built, both QA layers. `check_render`, `validate_spec`, `sample_frames`, `render_preview` (gated, same as `animate.yaml`). Model: `claude-sonnet-5`, genuinely exercising vision now (§7).
 
-**publish.yaml** — `render_final`, `youtube.upload`. Upload behind `approvals.require`. Model: anything.
+**publish.yaml** — built (upload stubbed). `check_render`, `validate_spec`, `sample_frames`, `render_final`, `youtube.upload`. Model: `claude-sonnet-5`. This is the fully automated pipeline `run.sh` drives — everything but the upload is auto-approved (unlike `qa.yaml`, which also gates `render_preview` since it's meant to be watched interactively); only `youtube.upload` requires a decision, matching PLAN.md §9's "approve one prompt" exit bar exactly.
 
 ```yaml
-# publish.yaml (excerpt)
+# publish.yaml (as built)
 approvals:
   mode: annotated
+  auto_approve: ["algoreel.check_render", "algoreel.validate_spec", "algoreel.sample_frames", "algoreel.render_final"]
   require: ["youtube.upload"]
-  auto_approve: ["algoreel.render_final"]
-  timeout: 24h
+  timeout: 30m
   on_timeout: deny
 ```
 
@@ -428,7 +447,24 @@ the information to see.
 ### Phase 5 — Publish agent
 YouTube MCP tool, upload gated, full `run.sh` chain.
 
-*Exit:* `./run.sh "explain BFS"` → you approve one prompt → video is live.
+**Done, upload stubbed.** No Google Cloud OAuth project exists yet
+(§11), so `youtube-server.ts`'s `upload` validates real YouTube
+constraints and returns a clearly-marked fake `videoId`/`url` instead of
+calling any real API — swapping in a real upload is a change to that one
+file, not to `publish.yaml`'s approval policy or `run.sh`'s flow. Every
+video is still silent (caption-only) — real TTS stays the other open §11
+decision.
+
+*Exit:* `./run.sh "explain BFS"` → you approve one prompt → video is
+live. **Met** (in the stubbed sense — "live" today means a stub
+response, not a real upload): verified live end to end, including the
+approve, deny, and `AUTO_APPROVE=1` non-interactive paths. Along the way,
+found and fixed a real bug in `run.sh` itself — a `while read <
+<(process substitution)` loop redirects its *entire body's* stdin, so an
+interactive `read -p` inside the loop was reading EOF instead of the
+user's answer instead of asking anything, and `set -e` silently killed
+the script. Fixed by reading the pending-approval list from fd 3 instead
+of stdin, leaving stdin free for the actual prompt.
 
 ### Phase 6 — Close the loop
 `get_analytics` feeds topic selection. The agent looks at retention on the last ten videos and picks the next topic.

@@ -179,6 +179,36 @@ Following the phased plan in `PLAN.md` §9:
   `position: absolute` element ignores `Frame`'s `paddingBottom`.
   Confirmed visually — rendered a real frame with `sample_frames` and
   looked at it directly, the same tool this phase built.
+- **Phase 5 — publish agent, upload stubbed.** No Google Cloud OAuth
+  project exists yet (a real one needs manual setup only the repo owner
+  can do), so `algoreel-mcp/src/youtube-server.ts`'s `upload` tool
+  validates real YouTube constraints — title length, non-empty
+  description, at least one tag, that the video file actually exists —
+  and returns a clearly-marked fake `videoId`/`url` instead of calling
+  any real API. It's a deliberately separate MCP server from the main
+  `algoreel` one (matching PLAN.md §5's own `youtube.upload` namespace),
+  so swapping in a real upload later touches that one file only. New
+  **`render_final`** renders the actual full-resolution video (no
+  `--scale=0.5`, unlike `render_preview`) into `out/final/`. New
+  **`publish.yaml`** chains `check_render` → fix → `validate_spec` →
+  `sample_frames` → `render_final` → `youtube.upload` — everything but
+  the upload auto-approved, since this agent (unlike the interactively
+  watched `qa.yaml`) is meant to run unattended end to end with exactly
+  one decision, matching PLAN.md §9's "approve one prompt" bar. New
+  **`run.sh`** at the repo root chains `script.yaml` → `publish.yaml` for
+  the full `./run.sh "a topic"` flow, verified live on the approve, deny,
+  and non-interactive (`AUTO_APPROVE=1`) paths. Every video is still
+  silent — real narration stays PLAN.md §11's other open decision.
+
+  **A real bug in `run.sh` itself, found and fixed while verifying the
+  deny path**: a `while read ... < <(process substitution)` loop
+  redirects its *entire body's* stdin to that substitution, so the
+  interactive `read -p` confirmation prompt *inside* the loop was
+  silently reading EOF instead of the user's typed answer — `read`
+  returned non-zero, and `set -e` killed the script before it ever
+  printed the prompt. Fixed by reading the pending-approval list from a
+  separate file descriptor (`3<<<`) instead of stdin, leaving stdin free
+  for the actual interactive question.
 
 ## Quickstart
 
@@ -253,6 +283,23 @@ export ANTHROPIC_API_KEY=...
 # then, once it reports state: awaiting_approval:
 ./agentforge runs approve <run-id> <call-id>
 ```
+
+Go all the way from a bare topic to a "published" video in one command —
+**`run.sh`** chains `script.yaml` into `publish.yaml`, pausing for
+exactly one approval (the upload). `agentforge` needs to be findable —
+either on `PATH`, or point `AGENTFORGE_BIN` at the binary. The upload
+itself is currently a stub (no YouTube OAuth credentials configured —
+see the Phase 5 status above), so this produces a real rendered mp4 and
+a clearly-fake `videoId`/`url`, not an actual live video yet:
+
+```
+export AGENTFORGE_BIN=/path/to/AgentForge/agentforge   # if not on PATH
+./run.sh "explain breadth-first search"
+# prints the pending youtube.upload call, then: Approve this? [y/N]
+```
+
+Set `AUTO_APPROVE=1 ./run.sh "..."` to skip the interactive prompt for
+an unattended run.
 
 ## Algorithms
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -32,8 +32,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_DIR = join(ROOT, "out");
 const OPERATIONS_DIR = join(OUT_DIR, "operations");
 const PREVIEWS_DIR = join(OUT_DIR, "previews");
+const FINAL_DIR = join(OUT_DIR, "final");
 const TMP_DIR = join(OUT_DIR, "tmp");
-for (const dir of [OPERATIONS_DIR, PREVIEWS_DIR, TMP_DIR]) {
+for (const dir of [OPERATIONS_DIR, PREVIEWS_DIR, FINAL_DIR, TMP_DIR]) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
@@ -224,6 +225,55 @@ server.registerTool(
     return text(
       JSON.stringify(
         { videoPath: outputPath, durationSec, targetDurationSec: storySpec.targetDurationSec },
+        null,
+        2,
+      ),
+    );
+  },
+);
+
+server.registerTool(
+  "render_final",
+  {
+    description:
+      "Render the real, full-resolution video from a validated StorySpec — the actual publishable asset, not a fast preview. Validates the spec first (same checks as validate_spec) and fails without rendering if it's invalid. Slower than render_preview; only call this once check_render/validate_spec/sample_frames are all clean.",
+    inputSchema: { spec: z.record(z.string(), z.unknown()) },
+  },
+  async ({ spec }) => {
+    const validation = validateSpec(spec);
+    if (!validation.valid) {
+      return text(JSON.stringify({ error: "spec is invalid, not rendering", details: validation.errors }, null, 2), true);
+    }
+    const storySpec = spec as unknown as StorySpec;
+
+    const id = randomUUID().slice(0, 8);
+    const propsPath = join(TMP_DIR, `props-${id}.json`);
+    const outputPath = join(FINAL_DIR, `final-${id}.mp4`);
+    writeFileSync(propsPath, JSON.stringify({ spec: storySpec }));
+
+    const timeline = buildTimeline(storySpec, FRAME.fps);
+    const durationSec = Math.round((timeline.totalDurationInFrames / FRAME.fps) * 10) / 10;
+
+    try {
+      // No --scale flag, unlike render_preview — full 1080x1920
+      // resolution, since this is the actual publishable asset. Longer
+      // timeout than render_preview's for the same reason (roughly 4x
+      // the pixels of a --scale=0.5 preview).
+      await execFileAsync(
+        "npx",
+        ["remotion", "render", "remotion/index.ts", "Video", outputPath, `--props=${propsPath}`],
+        { cwd: ROOT, maxBuffer: 20 * 1024 * 1024, timeout: 300_000 },
+      );
+    } catch (err) {
+      const stderr = err && typeof err === "object" && "stderr" in err ? String((err as { stderr: unknown }).stderr) : String(err);
+      return text(JSON.stringify({ error: "render failed", details: stderr.slice(-4000) }, null, 2), true);
+    }
+
+    const sizeBytes = statSync(outputPath).size;
+
+    return text(
+      JSON.stringify(
+        { videoPath: outputPath, durationSec, targetDurationSec: storySpec.targetDurationSec, sizeBytes },
         null,
         2,
       ),
