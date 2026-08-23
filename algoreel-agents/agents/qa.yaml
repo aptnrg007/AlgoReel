@@ -1,18 +1,24 @@
-# STATUS: Phase 4, Layer 1 only (PLAN.md §7's deterministic checks).
-# Layer 2 (vision inspection of sampled frames) is blocked on AgentForge:
-# its MCP client stringifies image content into raw base64 JSON text
-# (internal/mcp/content.go's contentToText) instead of a real image
-# content block, so a screenshot would reach the model as ~90K tokens of
-# unreadable noise, not something it can see. There is no BlockImage type,
-# no image shape in any provider's wire structs, and ToolExecutor returns
-# a plain string by signature (internal/runtime/runtime.go) — fixing it is
-# a breaking change across five files, tracked as a separate follow-up.
+# STATUS: Phase 4, both layers live (PLAN.md §7). Layer 1 (check_render)
+# is a pure function of the spec — every finding comes from the spec plus
+# the same deterministic timeline math the renderer itself uses, so a bad
+# spec is caught and fixed *before* paying for a render, not after; it
+# takes the spec directly, not a rendered video path, unlike the
+# render_preview-driven check PLAN.md §5 originally sketched.
 #
-# Takes a StorySpec directly (not a rendered video path, unlike the
-# render_preview-driven check PLAN.md §5 originally sketched) — every
-# check_render finding is a pure function of the spec plus the same
-# deterministic timeline math the renderer itself uses, so a bad spec is
-# caught and fixed *before* paying for a render, not after.
+# Layer 2 (sample_frames) needed a real fix in AgentForge first: its MCP
+# client used to stringify image content into raw base64 JSON text
+# instead of a real image content block, so a screenshot reached the
+# model as ~90K tokens of unreadable noise. Fixed via AgentForge's
+# ExecuteRich/BlockImage/ToolResultParts (internal/mcp, internal/message,
+# internal/provider/anthropic.go) — verified live before wiring this up.
+#
+# Known finding Layer 2 will very likely surface on every run: captions
+# render at a fixed bottom:60px, inside the 280px band SAFE_AREA reserves
+# for YouTube's UI overlay. That's a template bug (remotion/primitives/
+# Caption.tsx), not a per-spec one — deliberately left unfixed here (see
+# PLAN.md §7's Layer 1 section for the full writeup). The instructions
+# below tell the agent not to loop trying to fix a template-constant
+# issue by editing the spec.
 name: qa
 
 model:
@@ -42,11 +48,30 @@ instructions: |
      and semantically valid — check_render only catches layout/pacing
      problems, not the shape and consistency checks validate_spec already
      owns.
-  5. Only once both checks are clean, call render_preview with the final
-     spec.
-  6. Report back: the videoPath and durationSec render_preview returned,
-     and a short list of what you changed from the original spec and why
-     (skip this list if the original spec needed no changes at all).
+  5. Call sample_frames on the check_render-clean, validate_spec-clean
+     spec. Look at each returned image yourself — you can see them
+     directly. For each one, check exactly two things: is any text cut
+     off at the frame's edge, and does any element visibly overlap
+     another. Do not judge whether it looks good, stylish, or polished —
+     only these two structural problems. check_render already caught
+     everything that's checkable without actually looking at a frame.
+  6. If you see real text clipping or element overlap, treat it like a
+     check_render failure: revise the spec (a smaller input, shorter or
+     rebalanced narration) and go back to step 1, then re-run
+     sample_frames on the fixed spec too. But if what you're seeing is
+     the same in every frame regardless of what's in the spec — for
+     example, a caption sitting in the same place no matter the content —
+     that's a property of the fixed video template, not this spec. No
+     spec edit can fix it. Don't loop trying; note it once in your final
+     report and move on.
+  7. Only once check_render, validate_spec, and sample_frames are all
+     clean (aside from any template-level issue noted above), call
+     render_preview with the final spec.
+  8. Report back: the videoPath and durationSec render_preview returned,
+     a short list of what you changed from the original spec and why
+     (skip this list if the original spec needed no changes at all), and
+     any template-level visual issue you noticed in step 6 but couldn't
+     fix via the spec.
 
 mcp:
   - name: algoreel
@@ -59,17 +84,26 @@ mcp:
 tools:
   - "algoreel.check_render"
   - "algoreel.validate_spec"
+  - "algoreel.sample_frames"
   - "algoreel.render_preview"
 
 approvals:
   mode: annotated
-  auto_approve: ["algoreel.check_render", "algoreel.validate_spec"]
-  # check_render and validate_spec are pure and side-effect-free — nothing
-  # for a human to catch by gating them. render_preview is deliberately
-  # NOT auto-approved: it's the expensive, artifact-producing step (an
-  # actual render to disk), same gating principle as animate.yaml.
+  auto_approve: ["algoreel.check_render", "algoreel.validate_spec", "algoreel.sample_frames"]
+  # check_render and validate_spec are pure and side-effect-free.
+  # sample_frames does real headless-Chrome rendering, but — like the
+  # other two — produces no persisted artifact: the images exist only in
+  # memory for this agent's own reasoning, nothing written to disk.
+  # render_preview is deliberately NOT auto-approved: it's the expensive,
+  # artifact-producing step (an actual render to disk), same gating
+  # principle as animate.yaml.
+  #
+  # Cost note: unlike the other three tools, sample_frames sends real
+  # images to Anthropic on every call — a few hundred vision tokens per
+  # frame, several frames per call. Not free like Layer 1.
 
 limits:
-  max_turns: 15      # a handful of check_render/fix rounds plus one
-                      # validate_spec and one render_preview call
+  max_turns: 20      # a handful of check_render/fix rounds, a
+                      # sample_frames round or two, one validate_spec,
+                      # one render_preview call
   max_tokens: 4096

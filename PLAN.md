@@ -275,9 +275,50 @@ Every video is: **hook → algorithm animation → complexity card**. Same skele
 
 Three of the originally sketched checks are **not implemented**, each for a concrete reason found while building this: "every operation maps to a frame range" is superseded by `invisible-checkpoints` (checking checkpoints, not raw operations, since `compare`/`done` are deliberate visual no-ops that never produce a checkpoint); "every emphasis word appears in a caption" already lives in `validate.ts`; "no frame is >98% single-colour" would be a false-positive machine against this template — a 7-cell array covers ~5.6% of the frame against a flat background, so *every valid render* is already >90% single-colour, and the "did anything render" signal it's chasing is what `blank-checkpoint` already covers geometrically. `abs(audioDuration − timelineDuration) < 0.5s` is vacuous until real TTS lands (§11) — `generate_voice` estimates from the same function the timeline itself uses.
 
-**Layer 2 — vision. Blocked on AgentForge, not attempted here.** Traced end to end: AgentForge's MCP client (`internal/mcp/content.go`'s `contentToText`) flattens any non-text MCP content block — including a real `ImageContent`— into raw base64 JSON *text*. A modest screenshot would reach the model as ~90K tokens of unreadable noise, not something it can see. There's no `BlockImage` type in `internal/message/message.go`, no image shape in any provider's wire structs, and `Capabilities.Vision` is declared on every vision-capable provider but never read anywhere in production. `ToolExecutor` itself returns a plain `string` by signature (`internal/runtime/runtime.go`), so fixing this is a breaking change across roughly five files. Tracked as a separate follow-up plan, not part of Phase 4.
+**Layer 2 — vision. Built.** Was blocked on AgentForge: its MCP client
+(`internal/mcp/content.go`'s `contentToText`) used to flatten any
+non-text MCP content block — including a real `ImageContent` — into raw
+base64 JSON *text*, ~90K tokens of unreadable noise instead of something
+a model could see. Fixed there first (a real `BlockImage` content type,
+an optional `ExecuteRich` tool executor, and Anthropic's translator
+building a genuine nested-image `tool_result` — verified live against
+the real Messages API before wiring anything up here).
 
-The QA agent's job is to read the failure list and decide *what to change* — adjust pacing, shorten narration, reduce array size, re-render. That's a genuine agentic decision with a verifiable success criterion, and it's exactly what `qa.yaml` does today with Layer 1 alone.
+On the AlgoReel side: `remotion/sampleFrames.ts` picks 4-6 frame numbers
+from a `Timeline` (hook, up to 4 evenly-spread steps, outro — pure, unit
+tested, no browser needed); `src/render/frameSampler.ts` renders them via
+`@remotion/renderer`'s programmatic API (`bundle` once and cache it,
+`selectComposition` + `renderStill` per frame, returning an in-memory
+`Buffer` — no temp files); the `sample_frames` MCP tool returns each as a
+text label followed by a real image content block. `qa.yaml` looks at
+them directly and checks exactly PLAN.md's two closed questions — text
+clipped at an edge, elements overlapping — never an aesthetic one.
+
+**A real bug surfaced building this, worth recording**: the very first
+live run corrupted the MCP stdio stream on every `sample_frames` call
+(`invalid character 'D' looking for beginning of value` on the AgentForge
+side). Root cause: `@remotion/renderer`'s `isEqualOrBelowLogLevel` treats
+an *unset* `logLevel` as `indexOf(undefined) === -1`, which compares as
+"below" every real level — silently enabling Chromium's `dumpio`, which
+re-emits the browser's own stdout/stderr (including its `DevTools
+listening on ws://...` startup line) via `console.log`, landing on the
+same real stdout an MCP stdio server reserves exclusively for JSON-RPC.
+Fixed by passing `logLevel: "error"` explicitly to `selectComposition`
+and `renderStill` (not `bundle`, which never launches a browser).
+Verified live, end to end: `qa.yaml` on the committed
+`bubble-sort-demo.json` now runs `check_render` → `validate_spec` →
+`sample_frames` (one clean call, no retries) → `render_preview` in 4
+tool calls, ~46s, producing a real mp4 — it reported no clipping or
+overlap on this spec, and did *not* flag the caption/safe-area issue
+below, which is the expected, honest result: nothing in the frame itself
+is clipped or overlapping — YouTube's UI only covers that band once the
+video is actually in the app, which an isolated still can't show a vision
+model. That gap is real but out of Layer 2's narrow scope as specified.
+
+The QA agent's job is to read the failure list and decide *what to
+change* — adjust pacing, shorten narration, reduce array size, re-render.
+That's a genuine agentic decision with a verifiable success criterion,
+and `qa.yaml` now does it with both layers.
 
 ---
 
@@ -289,7 +330,7 @@ Sketches; refine against real AgentForge YAML once the needed features land.
 
 **animate.yaml** — `run_algorithm`, `generate_voice`, `render_preview`. Mostly mechanical; a local model can drive this once the tool schemas are tight.
 
-**qa.yaml** — built. `check_render`, `validate_spec`, `render_preview` (gated, same as `animate.yaml`). Model: `claude-sonnet-5` — Layer 1 only for now (§7), so vision isn't actually exercised yet despite the model supporting it.
+**qa.yaml** — built, both QA layers. `check_render`, `validate_spec`, `sample_frames`, `render_preview` (gated, same as `animate.yaml`). Model: `claude-sonnet-5`, genuinely exercising vision now (§7).
 
 **publish.yaml** — `render_final`, `youtube.upload`. Upload behind `approvals.require`. Model: anything.
 
@@ -354,12 +395,14 @@ call. Phase 3 is done.
 ### Phase 4 — QA loop
 Deterministic checks, then vision. Agent retries on failure.
 
-**Layer 1 done; Layer 2 blocked on AgentForge** (see §7's full writeup —
-MCP image content reaches the model as unreadable base64 text today, a
-five-file fix, tracked separately). `check_render` — a pure function of
-the spec, not a render, since every real check turned out to need nothing
-but the spec + the timeline math already in `buildTimeline.ts` — and
-`qa.yaml` are both built and verified live.
+**Both layers done** (see §7's full writeup). `check_render` — a pure
+function of the spec, not a render, since every real check turned out to
+need nothing but the spec + the timeline math already in
+`buildTimeline.ts` — and `sample_frames` — real Remotion stills via
+`@remotion/renderer`'s programmatic API, after fixing both an AgentForge
+vision-support gap and a real MCP-stdio-corruption bug found in the
+process (`logLevel` defaulting to Chromium's verbose `dumpio` mode) — are
+both wired into `qa.yaml` and verified live end to end.
 
 *Exit:* a deliberately broken spec (40-element array, 90 seconds of
 narration) gets caught and fixed by the agent without you intervening.

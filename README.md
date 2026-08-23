@@ -117,13 +117,13 @@ Following the phased plan in `PLAN.md` §9:
   "`targetDurationSec` is a sibling of `youtube`, not nested inside it"
   warning `script.yaml` already had, which was sending qwen3 into the
   identical unproductive loop on the render side.
-- **Phase 4 — Layer 1 done, Layer 2 blocked on AgentForge.** A spec that
-  passes `validate_spec` can still render into something unwatchable —
-  proven live: a 40-element `bubbleSort` spec with two short narration
-  beats validates cleanly, then produces 1601 animation checkpoints of
-  which **1598 get zero frames**, because `buildTimeline`'s frame budget
-  divides evenly across far more checkpoints than a short beat has frames
-  for. New `check_render` MCP tool (`algoreel-mcp/src/spec/checkRender.ts`)
+- **Phase 4 — both QA layers done.** A spec that passes `validate_spec`
+  can still render into something unwatchable — proven live: a
+  40-element `bubbleSort` spec with two short narration beats validates
+  cleanly, then produces 1601 animation checkpoints of which **1598 get
+  zero frames**, because `buildTimeline`'s frame budget divides evenly
+  across far more checkpoints than a short beat has frames for. New
+  `check_render` MCP tool (`algoreel-mcp/src/spec/checkRender.ts`)
   catches this and three other classes of failure — an array too wide for
   the 1080px frame, graph nodes overlapping past 24 on the fixed layout
   circle, and a real render duration drifting from `targetDurationSec` —
@@ -134,25 +134,46 @@ Following the phased plan in `PLAN.md` §9:
   sitting in the repo silently missing their target duration by 8+
   seconds (`specs/binary-search-demo.json`, and Phase 3's own
   `bfs-party-intro-demo.json`) — `validate_spec` had no way to see either.
+
+  **Vision QA (Layer 2) is built too**, after fixing what was blocking it
+  in AgentForge (see that repo's history): MCP image results used to
+  reach the model as unreadable base64 text; now a real image content
+  type round-trips end to end, verified live. New `sample_frames` MCP
+  tool renders 4-6 stills straight from the spec via `@remotion/renderer`'s
+  programmatic API (`remotion/sampleFrames.ts` picks the frame numbers,
+  pure and unit tested; `src/render/frameSampler.ts` does the actual
+  rendering, no temp files) and hands them to `qa.yaml`, which looks at
+  them directly and checks exactly two things per PLAN.md §7 — clipped
+  text, overlapping elements — never an aesthetic judgement.
+
+  **A real, separate bug turned up building this**: every `sample_frames`
+  call corrupted the MCP connection (`invalid character 'D'...` on the
+  AgentForge side) until traced to `@remotion/renderer` silently treating
+  an unset `logLevel` as more verbose than `"trace"` itself, enabling
+  Chromium's `dumpio` and re-emitting the browser's own `DevTools
+  listening on ws://...` startup line onto the same stdout an MCP server
+  needs exclusively for JSON-RPC. Fixed by passing `logLevel: "error"`
+  explicitly. Confirmed the fix live: `qa.yaml` on the committed
+  `bubble-sort-demo.json` now runs `check_render` → `validate_spec` →
+  `sample_frames` (one clean call) → `render_preview` in 4 tool calls,
+  producing a real mp4.
+
   New **`qa.yaml`** agent drives `check_render` → fix → `check_render` →
-  `validate_spec` → `render_preview` (gated, same principle as
-  `animate.yaml`); verified live end-to-end on Phase 4's own exit case: a
-  deliberately broken 40-element/90-second-target spec was rewritten down
-  to 6 elements across 6 beats with a matching `targetDurationSec: 32`,
-  unaided, and rendered to a real mp4. **Vision QA (Layer 2) is not
-  built** — traced into AgentForge and confirmed its MCP client
-  stringifies image tool results into raw base64 text
-  (`internal/mcp/content.go`), so a screenshot would reach the model as
-  ~90K tokens of noise, not something it can see; no `BlockImage` type,
-  no image support in any provider, `Capabilities.Vision` declared but
-  never read. Fixing it is a breaking change across roughly five files —
-  tracked as a separate follow-up, not attempted here. Also found but
-  deliberately **not fixed here**: `Caption.tsx` renders captions at
+  `validate_spec` → `sample_frames` → fix if needed → `render_preview`
+  (gated, same principle as `animate.yaml`); verified live end-to-end on
+  Phase 4's own exit case: a deliberately broken 40-element/90-second-target
+  spec was rewritten down to 6 elements across 6 beats with a matching
+  `targetDurationSec: 32`, unaided, and rendered to a real mp4. Also found
+  but deliberately **not fixed here**: `Caption.tsx` renders captions at
   `bottom: 60px`, inside the bottom 280px `SAFE_AREA` reserved because
   YouTube's UI overlays it — every video rendered so far has its caption
   in that covered band. It's constant across every spec (a template bug,
   not a per-spec one) and deserves its own look against a real render
-  rather than a fix bundled into a QA-focused phase.
+  rather than a fix bundled into a QA-focused phase. Layer 2 correctly
+  doesn't flag it either, on an honest technicality worth understanding:
+  nothing in an isolated still is actually clipped or overlapping — the
+  problem only exists once YouTube's real app UI covers that band, which
+  a bare frame can't show a vision model.
 
 ## Quickstart
 
@@ -213,8 +234,11 @@ export GOOGLE_API_KEY=...
 
 Check a StorySpec for layout/pacing problems and render it once it's
 clean — **`qa.yaml`** takes a StorySpec directly (paste the JSON as the
-message), fixes anything `check_render` flags, then renders. Like
-`animate.yaml`, `render_preview` needs a separate approval:
+message), fixes anything `check_render` or `sample_frames` flags, then
+renders. Like `animate.yaml`, `render_preview` needs a separate approval.
+Note: unlike `check_render` (free), `sample_frames` sends real images to
+Anthropic on every call — a few hundred vision tokens per frame, several
+frames per call:
 
 ```
 export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp

@@ -13,6 +13,7 @@ import { z } from "zod";
 import { ALGORITHMS, runAlgorithmByName, type AlgorithmName } from "./algorithms/index";
 import { splitPrimarySteps } from "./spec/beats";
 import { checkRender } from "./spec/checkRender";
+import { sampleFrames } from "./render/frameSampler";
 import { ALGORITHM_INPUT_SCHEMAS } from "./spec/schema";
 import { validateSpec } from "./spec/validate";
 import type { StorySpec } from "./spec/types";
@@ -84,6 +85,28 @@ server.registerTool(
     }
     const result = checkRender(spec as unknown as StorySpec);
     return text(JSON.stringify(result, null, 2), !result.pass);
+  },
+);
+
+server.registerTool(
+  "sample_frames",
+  {
+    description:
+      "Render 4-6 sample frames from a StorySpec as images, so you can visually check for clipped text or overlapping elements before paying for the real preview render (PLAN.md §7's Layer 2). Only check for those two structural problems, never whether it looks good — check_render already caught everything checkable without pixels. Call this only after check_render and validate_spec both pass.",
+    inputSchema: { spec: z.record(z.string(), z.unknown()) },
+  },
+  async ({ spec }) => {
+    const validation = validateSpec(spec);
+    if (!validation.valid) {
+      return text(JSON.stringify({ error: "spec is invalid, cannot sample frames", details: validation.errors }, null, 2), true);
+    }
+    const images = await sampleFrames(spec as unknown as StorySpec);
+    return {
+      content: images.flatMap((img) => [
+        { type: "text" as const, text: `Frame ${img.frame} (${img.label}):` },
+        { type: "image" as const, data: img.pngBase64, mimeType: "image/png" },
+      ]),
+    };
   },
 );
 
