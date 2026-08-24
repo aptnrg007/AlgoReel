@@ -1,5 +1,7 @@
 import { buildTimeline, type Timeline } from "../../remotion/buildTimeline";
-import { CELL, FRAME, NODE } from "../../remotion/template/tokens";
+import type { VisualState } from "../../remotion/primitives/state";
+import { CELL, FRAME, LIST, NODE } from "../../remotion/template/tokens";
+import { inputShape } from "./inputShape";
 import type { StorySpec } from "./types";
 
 export interface Check {
@@ -42,12 +44,18 @@ export function checkRender(spec: StorySpec): CheckRenderResult {
   // algorithm (algoreel-mcp/src/algorithms/index.ts's dynamic registry)
   // has an `input.array` exactly like the hand-written ones do, and gets
   // this same check for free without checkRender needing to know its name.
-  if (Array.isArray(spec.input.array)) {
-    failures.push(...arrayWidthChecks((spec.input.array as unknown[]).length));
-  }
-  if (Array.isArray(spec.input.nodes)) {
-    const overlap = graphOverlapCheck((spec.input.nodes as unknown[]).length);
-    if (overlap) failures.push(overlap);
+  switch (inputShape(spec.input)) {
+    case "array":
+      failures.push(...arrayWidthChecks((spec.input.array as unknown[]).length));
+      break;
+    case "graph": {
+      const overlap = graphOverlapCheck((spec.input.nodes as unknown[]).length);
+      if (overlap) failures.push(overlap);
+      break;
+    }
+    case "list":
+      failures.push(...listWidthChecks((spec.input.list as unknown[]).length));
+      break;
   }
 
   const timeline = buildTimeline(spec, FRAME.fps);
@@ -106,6 +114,46 @@ function maxArrayLength(): number {
   return Math.floor((FRAME.width + CELL.gap) / (CELL.size + CELL.gap));
 }
 
+// Mirrors arrayWidthChecks, but against LinkedListView's geometry: n real
+// nodes plus the one extra slot it always reserves for the permanent "∅"
+// terminal box (a null-pointer legend can also render, one slot to the
+// left of node 0, but — like ArrayView's pointer labels — that floats
+// outside the width budget rather than claiming its own slot; see
+// LinkedListView's own comment).
+function listWidthChecks(n: number): Check[] {
+  const totalSlots = n + 1;
+  const width = totalSlots * LIST.size + (totalSlots - 1) * LIST.gap;
+  if (width > FRAME.width) {
+    return [
+      {
+        severity: "error",
+        code: "list-too-wide",
+        message:
+          `list has ${n} nodes = ${width}px wide, wider than the ${FRAME.width}px frame ` +
+          `(LinkedListView never resizes nodes to fit — see tokens.ts's LIST comment) — ` +
+          `use at most ${maxListLength()} nodes.`,
+      },
+    ];
+  }
+  if (width > FRAME.width - EDGE_MARGIN) {
+    return [
+      {
+        severity: "warning",
+        code: "list-near-edge",
+        message:
+          `list has ${n} nodes = ${width}px wide, only ${FRAME.width - width}px from the frame edge ` +
+          `(captions use a ${EDGE_MARGIN}px inset) — consider fewer nodes for breathing room.`,
+      },
+    ];
+  }
+  return [];
+}
+
+function maxListLength(): number {
+  const maxSlots = Math.floor((FRAME.width + LIST.gap) / (LIST.size + LIST.gap));
+  return maxSlots - 1;
+}
+
 function graphOverlapCheck(n: number): Check | null {
   if (n < 2) return null;
   const spacing = 2 * NODE.radius * Math.sin(Math.PI / n);
@@ -126,6 +174,10 @@ function maxGraphNodes(): number {
   return Math.floor(Math.PI / Math.asin(NODE.size / (2 * NODE.radius)));
 }
 
+function isBlankState(state: VisualState): boolean {
+  return state.array.length === 0 && state.nodes.length === 0 && state.listNodes.length === 0;
+}
+
 function checkpointChecks(timeline: Timeline): Check[] {
   const failures: Check[] = [];
   const invisibleByBeat = new Map<string, number>();
@@ -135,7 +187,7 @@ function checkpointChecks(timeline: Timeline): Check[] {
     let invisible = 0;
     for (const cp of step.checkpoints) {
       if (cp.durationInFrames === 0) invisible++;
-      if (cp.state.array.length === 0 && cp.state.nodes.length === 0) blankCount++;
+      if (isBlankState(cp.state)) blankCount++;
     }
     if (invisible > 0) invisibleByBeat.set(step.beat, invisible);
   }
@@ -160,9 +212,9 @@ function checkpointChecks(timeline: Timeline): Check[] {
       severity: "error",
       code: "blank-checkpoint",
       message:
-        `${blankCount} checkpoint(s) render with no array and no graph nodes — the screen would be empty. ` +
-        `This usually means the "intro" beat (or its absence) isn't seeding the array/graph before the ` +
-        `first op:N beat.`,
+        `${blankCount} checkpoint(s) render with no array, no graph nodes, and no list nodes — the screen ` +
+        `would be empty. This usually means the "intro" beat (or its absence) isn't seeding the ` +
+        `array/graph/list before the first op:N beat.`,
     });
   }
 

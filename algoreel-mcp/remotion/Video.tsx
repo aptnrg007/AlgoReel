@@ -2,8 +2,10 @@ import React from "react";
 import { AbsoluteFill, Sequence, Series, useVideoConfig } from "remotion";
 import type { StorySpec } from "../src/spec/types";
 import { buildTimeline } from "./buildTimeline";
+import { inputShape } from "../src/spec/inputShape";
 import { ArrayView } from "./primitives/ArrayView";
 import { GraphView } from "./primitives/GraphView";
+import { LinkedListView } from "./primitives/LinkedListView";
 import { Caption } from "./template/Caption";
 import { Frame } from "./template/Frame";
 import { Hook } from "./template/Hook";
@@ -15,7 +17,8 @@ import { Outro } from "./template/Outro";
 export const Video: React.FC<{ spec: StorySpec }> = ({ spec }) => {
   const { fps } = useVideoConfig();
   const timeline = buildTimeline(spec, fps);
-  const StateView = spec.algorithm === "bfs" ? GraphView : ArrayView;
+  const VIEW_BY_SHAPE = { array: ArrayView, graph: GraphView, list: LinkedListView } as const;
+  const StateView = VIEW_BY_SHAPE[inputShape(spec.input)];
 
   return (
     <Series>

@@ -95,9 +95,13 @@ instructions: |
      topic below.
 
      If the topic isn't even array-shaped — a genuinely different data
-     structure like a linked list or tree, which isn't supported yet —
-     do not force-fit an existing algorithm. Name the spec after whatever
-     you actually run, not the original request, if they don't match.
+     structure — check list_algorithms for a real match on that structure
+     first (reverseLinkedList genuinely exists now: real next-pointer
+     rewiring, rendered as connected nodes with directed arrows). If
+     nothing there genuinely matches — trees, general graphs beyond bfs,
+     any other linked-list operation — do not force-fit an existing
+     algorithm. Name the spec after whatever you actually run, not the
+     original request, if they don't match.
   3. Call run_algorithm({algorithm, input}) with the name you picked in
      step 2 (or the name ensure_algorithm returned), and read its
      summary and primaryStepCount. Base every "op:N" beat you write on

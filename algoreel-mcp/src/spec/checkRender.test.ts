@@ -177,6 +177,84 @@ test("Phase 4 exit criterion: a 40-element array with 90s target and thin narrat
   assert.equal(result.pass, false);
 });
 
+test("list-too-wide fires at n=6 and not below", () => {
+  const spec: StorySpec = {
+    version: 1,
+    topic: "t",
+    targetDurationSec: 30,
+    hook: "h",
+    narration: [
+      { beat: "intro", text: longText(3) },
+      { beat: "op:0", text: longText(10) },
+      { beat: "outro", text: longText(5) },
+    ],
+    emphasis: [],
+    complexity: COMPLEXITY,
+    youtube: YOUTUBE,
+    algorithm: "reverseLinkedList",
+    input: { list: [1, 2, 3, 4, 5, 6] },
+  };
+  const result = checkRender(withMatchedDuration(spec));
+  assert.ok(codesOf(result).includes("list-too-wide"));
+  assert.equal(result.pass, false);
+});
+
+test("list-near-edge warns at n=5 without failing the render", () => {
+  const spec: StorySpec = {
+    version: 1,
+    topic: "t",
+    targetDurationSec: 30,
+    hook: "h",
+    narration: [
+      { beat: "intro", text: longText(3) },
+      { beat: "op:0", text: longText(10) },
+      { beat: "outro", text: longText(5) },
+    ],
+    emphasis: [],
+    complexity: COMPLEXITY,
+    youtube: YOUTUBE,
+    algorithm: "reverseLinkedList",
+    input: { list: [1, 2, 3, 4, 5] },
+  };
+  const result = checkRender(withMatchedDuration(spec));
+  const warning = result.failures.find((f) => f.code === "list-near-edge");
+  assert.ok(warning);
+  assert.equal(warning.severity, "warning");
+  assert.equal(result.pass, true);
+});
+
+test("n=4 list is clean — no width failures at all", () => {
+  const spec: StorySpec = {
+    version: 1,
+    topic: "t",
+    targetDurationSec: 30,
+    hook: "h",
+    narration: [
+      { beat: "intro", text: longText(3) },
+      { beat: "op:0", text: longText(10) },
+      { beat: "outro", text: longText(5) },
+    ],
+    emphasis: [],
+    complexity: COMPLEXITY,
+    youtube: YOUTUBE,
+    algorithm: "reverseLinkedList",
+    input: { list: [1, 2, 3, 4] },
+  };
+  const result = checkRender(withMatchedDuration(spec));
+  assert.ok(!codesOf(result).includes("list-too-wide"));
+  assert.ok(!codesOf(result).includes("list-near-edge"));
+  assert.ok(!codesOf(result).includes("blank-checkpoint"));
+  assert.equal(result.pass, true);
+});
+
+test("committed reverse-linked-list-demo.json is clean end to end", () => {
+  const raw = readFileSync(join(import.meta.dirname, "../../specs/reverse-linked-list-demo.json"), "utf8");
+  const spec = JSON.parse(raw) as StorySpec;
+  const result = checkRender(spec);
+  assert.deepEqual(result.failures, []);
+  assert.equal(result.pass, true);
+});
+
 test("committed bubble-sort-demo.json is clean end to end", () => {
   const raw = readFileSync(join(import.meta.dirname, "../../specs/bubble-sort-demo.json"), "utf8");
   const spec = JSON.parse(raw) as StorySpec;

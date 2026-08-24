@@ -254,13 +254,15 @@ Following the phased plan in `PLAN.md` §9:
 
   Verified live end to end: `./preview.sh "merge sort"` produces a real
   generated, validated `mergesort.ts` and a real rendered mp4. Re-testing
-  the original bug (`./preview.sh "reversing a linked list"`) now
-  produces an honestly-named result — "reversing an array with the
+  the original bug (`./preview.sh "reversing a linked list"`) at the time
+  produced an honestly-named fallback — "reversing an array with the
   two-pointer technique" — rather than a mismatched algorithm dressed up
-  as the original request; `script.yaml` explicitly requires this
+  as the original request; `script.yaml` explicitly required this
   honesty (topic and narration must describe what was actually
   implemented) after a first fix caught the *code* but not the
-  narration still claiming to be "how linked list reversal works."
+  narration still claiming to be "how linked list reversal works." A
+  later phase closed this properly with a real `reverseLinkedList` — see
+  below.
 
   **Deliberately out of scope for this phase** (see `PLAN.md` §10): graph
   algorithms (no `TracedGraph` yet), linked lists/trees (need a new
@@ -307,6 +309,27 @@ Following the phased plan in `PLAN.md` §9:
   code quality from a free model isn't guaranteed, and there's currently
   no escalation to a paid model when it fails. See `PLAN.md` §10 and
   §11.
+
+- **Linked lists — a real visual primitive, closing the original bug for
+  good.** Every algorithm up to this point was forced through one of two
+  shapes, `ArrayView`'s blocks or `GraphView`'s circle-of-nodes-with-
+  undirected-edges. Neither can honestly represent a linked list: a
+  reversal needs *directed, mutable* pointers, and `GraphView`'s edges are
+  declared once and never change. New: `LinkedListView` (a left-to-right
+  row of nodes with directed arrows — straight across the gap for a
+  forward link, arcing below the row for anything rewired) plus four new
+  `Operation` variants (`list`, `relink`, `listPointer`, `listFocus`) and
+  a hand-written `reverseLinkedList`, following the same phasing arrays
+  used before Phase A's codegen generalized them — prove the primitive
+  and vocabulary with one real example first. `Video.tsx` and
+  `checkRender.ts` now both dispatch off one shared `inputShape()` helper
+  instead of the name-based/shape-based split that used to exist between
+  them. Scoped deliberately to linked lists only, DSA structures, no DB
+  tables — trees, general graphs beyond `bfs`, and list codegen all
+  remain out of scope. `./preview.sh "reversing a linked list"` now
+  produces the real thing: a `reverseLinkedList` spec, rendered as
+  connected nodes with pointer arrows actually rewiring direction, not a
+  fallback array algorithm.
 
   **A second, more fundamental gap, also found live:** asking for
   `"linear search"` burned all 3 retry attempts every single time,
@@ -462,21 +485,39 @@ an unattended run.
 
 ## Algorithms
 
-Three chosen for visual variety, not difficulty (`PLAN.md` §10), and all
-three are built: `binarySearch`, `bubbleSort`, and `bfs`. Adding `bfs`
-extended the operation vocabulary by exactly one type — `graph`, the
-graph-shaped analog of `init` (declares the full node/edge set up front,
+Four hand-written algorithms, one per structure/rendering shape:
+`binarySearch`, `bubbleSort`, `bfs`, and `reverseLinkedList`. Each new
+structure earned exactly the operations it genuinely needed and nothing
+more (`PLAN.md` §10's discipline rule) — `bfs` added `graph` (the
+graph-shaped analog of `init`: declares the full node/edge set up front,
 the same way `init` gives array algorithms a fixed set of cells from frame
-0) — reusing the `visit`/`enqueue`/`dequeue`/`edge` operations that were
-already defined but unused. Rendering picks `ArrayView` or `GraphView`
-based on the spec's algorithm; both fold from the same operation log
-through the same `VisualState`, `buildTimeline`, and beat-grouping
-pipeline with no other special-casing.
+0) plus `visit`/`enqueue`/`dequeue`/`edge`; `reverseLinkedList` added
+`list` (the list-shaped analog of `init`/`graph`), `relink`,
+`listPointer`, and `listFocus` — a linked list needed its own vocabulary
+rather than reusing graph's `edge` because a list's links are *directed
+and mutable* (a reversal rewires them one at a time), while a graph's
+`edges` are declared once and never change.
 
-Beyond those three, any array-shaped algorithm (sorting, searching, two
+Rendering picks `ArrayView`, `GraphView`, or `LinkedListView` based on the
+spec's input *shape* (`src/spec/inputShape.ts`, also used by
+`checkRender.ts`'s layout checks, so the two can't disagree about what
+kind of structure a spec is); all three fold from the same operation log
+through the same `VisualState`, `buildTimeline`, and beat-grouping
+pipeline with no other special-casing. `LinkedListView` draws directed
+arrows between nodes — straight across the gap for a forward-adjacent
+link, arcing below the row for anything else (a rewired backward pointer,
+or a non-tail node pointing at the shared `∅` terminal box) — the one
+rendering capability none of the other views needed.
+
+Trees, general graphs beyond `bfs`, and DB/table structures remain out of
+scope, and still need their own visual primitives if ever added.
+
+Beyond those four, any array-shaped algorithm (sorting, searching, two
 pointers, ...) can be added without touching this repo by hand — call
 `ensure_algorithm`, described above, which writes and validates one via
 a dedicated local-model agent if it isn't cached yet.
 `algorithms/generated/` holds whatever's been validated and cached so
 far; `list_algorithms`' `generated: true` field tells the agent (and
 you) which entries came from that path versus were hand-written.
+Codegen is still array-only — a generated linked-list implementation
+isn't supported yet.

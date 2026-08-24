@@ -665,12 +665,25 @@ safe, and removes a variable before it becomes one.
 Graph algorithms (DFS, Dijkstra, BST insert, stack/queue) are **not**
 covered by any of this — Phase A and the algorithm agent are both
 array-only. A `TracedGraph` equivalent is a natural follow-up but hasn't
-been built. Structures needing a new visual primitive (linked lists,
-trees) remain fully out of scope regardless of codegen —
-`ensure_algorithm` rejects any `structure` other than `"array"`
-mechanically, and `script.yaml` is instructed to say so honestly rather
-than force a mismatched array algorithm into that slot, the same failure
-mode this phase already fixed once, one level more subtle (an
+been built.
+
+**Linked lists got a real primitive of their own**, one structure at a
+time, the same way `bfs` earned `GraphView`: `LinkedListView` (nodes in a
+row, directed pointer arrows — arcing below the row for a rewired,
+non-adjacent link) plus four new `Operation` variants (`list`, `relink`,
+`listPointer`, `listFocus`) and a hand-written `reverseLinkedList`
+algorithm proving them, the same phasing arrays used before Phase A's
+codegen generalized them (hand-write one example first). `Video.tsx` and
+`checkRender.ts` both dispatch off one shared `inputShape()` helper
+(`src/spec/inputShape.ts`) now, rather than the name-based/shape-based
+split that used to exist between them.
+
+Trees, general graphs beyond `bfs`, and DB/table structures **remain**
+fully out of scope, as does any codegen path for lists — `ensure_algorithm`
+still rejects any `structure` other than `"array"` mechanically, and
+`script.yaml` is instructed to say so honestly for whatever's still
+missing rather than force a mismatched algorithm into that slot, the same
+failure mode this phase already fixed once, one level more subtle (an
 honestly-coded algorithm can still get a dishonest narration wrapped
 around it — also found live and fixed, see `script.yaml`'s STATUS
 comment).

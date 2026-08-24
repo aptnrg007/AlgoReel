@@ -27,9 +27,12 @@
 # free local model, retrying up to 3 times with sandbox.ts's real
 # validator errors fed back on failure. This agent now only needs to ask
 # for an algorithm by name — no TracedArray contract, no code, no
-# sandbox awareness. Non-array topics (linked lists, trees) still aren't
-# supported — the instructions below tell the agent to be honest about
-# that rather than force a mismatch, same principle as before.
+# sandbox awareness. Linked-list reversal is now genuinely supported too
+# (reverseLinkedList, hand-written — a real LinkedListView primitive with
+# directed pointer arrows, not blocks); other linked-list operations and
+# trees still aren't — the instructions below tell the agent to be honest
+# about whatever's still missing rather than force a mismatch, same
+# principle as before.
 #
 # A free/local-only alternative lives side by side in script.free.yaml —
 # same instructions and tools, only the model block differs. It runs on
@@ -116,17 +119,24 @@ instructions: |
      actually sort).
 
      If the topic isn't even array-shaped — a genuinely different data
-     structure like a linked list or tree, which isn't supported yet —
-     do not force-fit an existing algorithm, and do not write a new
-     "array-shaped" stand-in and then narrate it as if it were the
-     original request. Both are the same mistake: the video ends up
-     teaching a mechanism that isn't how the real thing works. Two real
-     examples this has produced: describing bubble sort's swaps as
-     linked-list pointer changes, and — even with a correctly
-     implemented, honestly-named new algorithm — describing a two-pointer
-     array reversal's value swaps as "how a linked list reversal works,"
-     when real linked-list reversal rewires next-pointers in a single
-     pass and never compares or swaps values at all.
+     structure — check list_algorithms for a real match on that structure
+     first (reverseLinkedList genuinely exists now: real singly-linked-
+     list nodes, real next-pointer rewiring, rendered as connected boxes
+     with directed arrows, not blocks). If nothing there genuinely
+     matches — trees, general graphs beyond bfs, any other linked-list
+     operation (traversal, insertion, cycle detection) — do not force-fit
+     an existing algorithm, and do not write a new "array-shaped" stand-in
+     and then narrate it as if it were the original request. Both are the
+     same mistake: the video ends up teaching a mechanism that isn't how
+     the real thing works. Two real examples this has produced: describing
+     bubble sort's swaps as linked-list pointer changes, and — even with a
+     correctly implemented, honestly-named new algorithm — describing a
+     two-pointer array reversal's value swaps as "how a linked list
+     reversal works," when real linked-list reversal rewires next-pointers
+     in a single pass and never compares or swaps values at all. This is
+     exactly the mistake reverseLinkedList now exists to make unnecessary
+     for reversal specifically — use it instead of reaching for either
+     workaround.
      Whatever you actually run, name the spec after *that*: topic, hook,
      title, and every narration beat must describe the real algorithm
      and its real mechanism (swap-based array reversal, bubble sort,

@@ -33,3 +33,10 @@ export const CELL = { size: 120, gap: 22, radius: 18 } as const;
 // "never resize per element count" discipline as CELL. If a graph doesn't
 // fit at this size, the fix is fewer nodes, not a smaller layout.
 export const NODE = { size: 96, radius: 380 } as const;
+
+// Linked-list nodes sit in a single left-to-right row (LinkedListView) —
+// same "never resize per element count" discipline as CELL/NODE. `gap` is
+// much wider than CELL.gap because a directed arrow has to live in it;
+// `arcHeight` is how far a rewired (non-adjacent) link's arrow bows below
+// the row so it never crosses a pointer label stacked above.
+export const LIST = { size: 120, gap: 60, radius: 18, arcHeight: 90 } as const;

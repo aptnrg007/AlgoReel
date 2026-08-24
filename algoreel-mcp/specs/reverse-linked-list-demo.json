@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "topic": "reversing a linked list",
+  "algorithm": "reverseLinkedList",
+  "input": {
+    "list": [4, 9, 2, 7]
+  },
+  "targetDurationSec": 30,
+  "hook": "Reversing a linked list never compares or swaps a single value. So what actually moves?",
+  "narration": [
+    { "beat": "intro", "text": "A linked list is a chain of nodes, each pointing to the next. To reverse it, we walk the chain once, rewiring pointers as we go." },
+    { "beat": "op:0", "text": "Three pointers do the work: prev starts at null, curr starts at the head. Each step, curr's next pointer is rewired to point back at prev." },
+    { "beat": "op:1", "text": "Then prev and curr both slide one node forward, and the process repeats — one rewired pointer per node, moving steadily down the chain." },
+    { "beat": "op:2", "text": "When curr finally runs off the end of the list, prev is sitting on the old last node — the new head." },
+    { "beat": "outro", "text": "Five nodes, five rewired pointers, one pass — no comparisons, no swaps, just pointers changing direction." }
+  ],
+  "emphasis": ["POINTERS", "REWIRED"],
+  "complexity": { "time": "O(n)", "space": "O(1)" },
+  "youtube": {
+    "title": "Reversing a Linked List in 30 Seconds",
+    "description": "How linked list reversal really works: one pass, three pointers, and next-pointers rewired one at a time. No value comparisons or swaps involved.",
+    "tags": ["dsa", "algorithms", "linked-list", "pointers", "coding"]
+  }
+}

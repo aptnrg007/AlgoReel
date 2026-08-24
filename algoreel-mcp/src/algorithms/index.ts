@@ -4,6 +4,7 @@ import { bfs } from "./bfs";
 import { binarySearch } from "./binarySearch";
 import { bubbleSort } from "./bubbleSort";
 import { GENERATED } from "./generated/manifest";
+import { reverseLinkedList } from "./reverseLinkedList";
 import type { AlgorithmResult } from "./types";
 
 // One registry entry per algorithm — consolidates what used to be split
@@ -55,6 +56,15 @@ register({
   }),
   generated: false,
   run: bfs as AlgorithmEntry["run"],
+});
+
+register({
+  name: "reverseLinkedList",
+  description: "Reverse a singly linked list in one pass by rewiring each node's next pointer to its predecessor.",
+  inputHint: "{ list: number[] }",
+  inputSchema: z.object({ list: z.array(z.number()).min(2) }),
+  generated: false,
+  run: reverseLinkedList as AlgorithmEntry["run"],
 });
 
 // Every algorithm named here at module load is hand-written and known at

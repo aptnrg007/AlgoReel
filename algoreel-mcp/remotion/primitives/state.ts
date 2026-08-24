@@ -17,6 +17,10 @@ export interface VisualState {
   edges: [string, string][];
   nodeStatus: Record<string, "queued" | "current" | "visited">;
   edgeStatus: Record<string, "active" | "used">;
+  listNodes: { id: string; value: number }[];
+  listNext: Record<string, string | null>;
+  listPointers: Record<string, string | null>;
+  listFocus: Set<string>;
 }
 
 export const INITIAL_STATE: VisualState = {
@@ -28,6 +32,10 @@ export const INITIAL_STATE: VisualState = {
   edges: [],
   nodeStatus: {},
   edgeStatus: {},
+  listNodes: [],
+  listNext: {},
+  listPointers: {},
+  listFocus: new Set(),
 };
 
 // Undirected edges can be declared/traversed in either order — normalize to
@@ -100,6 +108,19 @@ export function applyOperation(state: VisualState, op: Operation): VisualState {
       return { ...state, nodeStatus: { ...state.nodeStatus, [op.node]: "visited" } };
     case "edge":
       return { ...state, edgeStatus: { ...state.edgeStatus, [edgeKey(op.from, op.to)]: op.state } };
+    case "list": {
+      const listNext: Record<string, string | null> = {};
+      op.nodes.forEach((node, i) => {
+        listNext[node.id] = op.nodes[i + 1]?.id ?? null;
+      });
+      return { ...state, listNodes: op.nodes, listNext };
+    }
+    case "relink":
+      return { ...state, listNext: { ...state.listNext, [op.from]: op.to } };
+    case "listPointer":
+      return { ...state, listPointers: { ...state.listPointers, [op.name]: op.node } };
+    case "listFocus":
+      return { ...state, listFocus: new Set(op.nodes) };
     case "compare":
     case "done":
       return state;

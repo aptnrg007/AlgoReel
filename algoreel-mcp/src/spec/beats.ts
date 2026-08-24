@@ -24,10 +24,12 @@ export function splitPrimarySteps(operations: Operation[]): {
 
 // A "focus" highlight is array algorithms' step boundary (the element(s)
 // currently under scrutiny); a "dequeue" is graph algorithms' equivalent
-// (the node currently being processed) — binarySearch/bubbleSort emit one
-// focus highlight per logical step, bfs emits one dequeue per logical step.
-// Both mark "a new primary step begins here" the same way, just from
-// different algorithm shapes, so both count.
+// (the node currently being processed); "listFocus" is linked-list
+// algorithms' equivalent (the node currently under the cursor) —
+// binarySearch/bubbleSort emit one focus highlight per logical step, bfs
+// emits one dequeue per logical step, reverseLinkedList emits one
+// listFocus per logical step. All three mark "a new primary step begins
+// here" the same way, just from different algorithm shapes, so all count.
 function isStepBoundary(op: Operation): boolean {
-  return (op.type === "highlight" && op.style === "focus") || op.type === "dequeue";
+  return (op.type === "highlight" && op.style === "focus") || op.type === "dequeue" || op.type === "listFocus";
 }
