@@ -8,9 +8,10 @@ export interface BFSInput {
 
 /**
  * Pure, deterministic — same boundary as binarySearch.ts and bubbleSort.ts
- * (PLAN.md §2). Reuses the existing graph operation types (graph/enqueue/
- * dequeue/visit/edge/done) with no new variants beyond "graph" itself,
- * which types.ts documents as the graph analog of "init".
+ * (PLAN.md §2). Reuses the generic node/link operation vocabulary
+ * (types.ts's struct/nodeState/linkState) — a graph is a "circle"-layout
+ * structure with a fixed, undirected edge set, no different in kind from
+ * a linked list's "row"-layout directed one.
  */
 export function bfs({ nodes, edges, start }: BFSInput): AlgorithmResult {
   if (!nodes.includes(start)) {
@@ -32,27 +33,42 @@ export function bfs({ nodes, edges, start }: BFSInput): AlgorithmResult {
   // regardless of the order edges were declared in.
   for (const list of adjacency.values()) list.sort();
 
-  const operations: Operation[] = [{ type: "graph", nodes: [...nodes], edges: [...edges] }];
+  const operations: Operation[] = [
+    { type: "struct", layout: "circle", nodes: nodes.map((id) => ({ id, value: id })), edges: [...edges] },
+  ];
   const visited = new Set<string>([start]);
   const queue: string[] = [start];
   const order: string[] = [];
+  // Edges lit "active" the moment they discover a new neighbor settle to
+  // "used" (still visible, just no longer the newest thing) the next time
+  // any node is dequeued — the graph analog of a "focus" highlight
+  // settling once a new step begins. Tracked here, not in the generic
+  // renderer (remotion/primitives/state.ts): this is bfs's own traversal
+  // semantics, not something every node/link structure needs.
+  let activeEdges: [string, string][] = [];
 
-  operations.push({ type: "enqueue", node: start });
+  operations.push({ type: "nodeState", nodes: [start], state: "pending" });
 
   while (queue.length > 0) {
     const node = queue.shift()!;
-    // "dequeue" is the step boundary (see src/spec/beats.ts) — one primary
-    // step per node processed, the graph analog of one comparison in
-    // bubbleSort or one loop iteration in binarySearch.
-    operations.push({ type: "dequeue", node });
-    operations.push({ type: "visit", node });
+    for (const [a, b] of activeEdges) {
+      operations.push({ type: "linkState", from: a, to: b, state: "used" });
+    }
+    activeEdges = [];
+
+    // "focus" is the step boundary (src/spec/beats.ts) — one primary step
+    // per node processed, the graph analog of one comparison in
+    // bubbleSort or one rewired pointer in reverseLinkedList.
+    operations.push({ type: "nodeState", nodes: [node], state: "focus" });
+    operations.push({ type: "nodeState", nodes: [node], state: "done" });
     order.push(node);
 
     for (const neighbor of adjacency.get(node)!) {
       if (!visited.has(neighbor)) {
         visited.add(neighbor);
-        operations.push({ type: "edge", from: node, to: neighbor, state: "active" });
-        operations.push({ type: "enqueue", node: neighbor });
+        operations.push({ type: "linkState", from: node, to: neighbor, state: "active" });
+        activeEdges.push([node, neighbor]);
+        operations.push({ type: "nodeState", nodes: [neighbor], state: "pending" });
         queue.push(neighbor);
       }
     }

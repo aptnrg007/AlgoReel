@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "topic": "in-order binary tree traversal",
+  "algorithm": "inorderTraversal",
+  "input": {
+    "tree": [8, 4, 12, 2, 6, 10, 14]
+  },
+  "targetDurationSec": 32,
+  "hook": "One traversal order turns any binary search tree back into a sorted list. How?",
+  "narration": [
+    { "beat": "intro", "text": "This is a binary search tree — every left child is smaller than its parent, every right child is larger." },
+    { "beat": "op:0", "text": "In-order traversal visits the entire left subtree first, recursively, before touching the node itself." },
+    { "beat": "op:1", "text": "Once the left side is exhausted, it visits the node, then recurses into the right subtree the same way." },
+    { "beat": "op:2", "text": "Repeating this at every level, left then node then right, walks the whole tree in one pass." },
+    { "beat": "outro", "text": "Seven nodes, one recursive rule — and the visit order comes out perfectly sorted, for free." }
+  ],
+  "emphasis": ["LEFT", "RIGHT", "SORTED"],
+  "complexity": { "time": "O(n)", "space": "O(h)" },
+  "youtube": {
+    "title": "In-Order Tree Traversal, Visually",
+    "description": "Why an in-order traversal of a binary search tree always visits nodes in sorted order — left subtree, node, right subtree, recursively.",
+    "tags": ["dsa", "algorithms", "binary-tree", "bst", "coding"]
+  }
+}

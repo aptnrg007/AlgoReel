@@ -4,8 +4,7 @@ import type { StorySpec } from "../src/spec/types";
 import { buildTimeline } from "./buildTimeline";
 import { inputShape } from "../src/spec/inputShape";
 import { ArrayView } from "./primitives/ArrayView";
-import { GraphView } from "./primitives/GraphView";
-import { LinkedListView } from "./primitives/LinkedListView";
+import { StructureView } from "./primitives/StructureView";
 import { Caption } from "./template/Caption";
 import { Frame } from "./template/Frame";
 import { Hook } from "./template/Hook";
@@ -17,7 +16,7 @@ import { Outro } from "./template/Outro";
 export const Video: React.FC<{ spec: StorySpec }> = ({ spec }) => {
   const { fps } = useVideoConfig();
   const timeline = buildTimeline(spec, fps);
-  const VIEW_BY_SHAPE = { array: ArrayView, graph: GraphView, list: LinkedListView } as const;
+  const VIEW_BY_SHAPE = { array: ArrayView, struct: StructureView } as const;
   const StateView = VIEW_BY_SHAPE[inputShape(spec.input)];
 
   return (

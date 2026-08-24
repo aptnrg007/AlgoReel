@@ -3,7 +3,9 @@ import { z } from "zod";
 import { bfs } from "./bfs";
 import { binarySearch } from "./binarySearch";
 import { bubbleSort } from "./bubbleSort";
+import { checkBalancedParens } from "./checkBalancedParens";
 import { GENERATED } from "./generated/manifest";
+import { inorderTraversal } from "./inorderTraversal";
 import { reverseLinkedList } from "./reverseLinkedList";
 import type { AlgorithmResult } from "./types";
 
@@ -65,6 +67,24 @@ register({
   inputSchema: z.object({ list: z.array(z.number()).min(2) }),
   generated: false,
   run: reverseLinkedList as AlgorithmEntry["run"],
+});
+
+register({
+  name: "inorderTraversal",
+  description: "Visit every node of a binary tree in left-node-right order, recursively.",
+  inputHint: "{ tree: number[] } (level-order complete binary tree — index i's children at 2i+1, 2i+2)",
+  inputSchema: z.object({ tree: z.array(z.number()).min(1) }),
+  generated: false,
+  run: inorderTraversal as AlgorithmEntry["run"],
+});
+
+register({
+  name: "checkBalancedParens",
+  description: "Check whether a string's brackets are balanced by pushing openers and popping on closers.",
+  inputHint: '{ expression: string } (e.g. "(()())")',
+  inputSchema: z.object({ expression: z.string().min(1) }),
+  generated: false,
+  run: checkBalancedParens as AlgorithmEntry["run"],
 });
 
 // Every algorithm named here at module load is hand-written and known at

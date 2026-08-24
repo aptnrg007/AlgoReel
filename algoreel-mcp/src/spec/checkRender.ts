@@ -1,6 +1,7 @@
 import { buildTimeline, type Timeline } from "../../remotion/buildTimeline";
+import { computeLayout } from "../../remotion/primitives/layout";
 import type { VisualState } from "../../remotion/primitives/state";
-import { CELL, FRAME, LIST, NODE } from "../../remotion/template/tokens";
+import { CELL, FRAME, SAFE_AREA, STRUCT } from "../../remotion/template/tokens";
 import { inputShape } from "./inputShape";
 import type { StorySpec } from "./types";
 
@@ -38,24 +39,21 @@ export interface CheckRenderResult {
 export function checkRender(spec: StorySpec): CheckRenderResult {
   const failures: Check[] = [];
 
-  // Keyed off input *shape*, not algorithm name — was `spec.algorithm ===
-  // "binarySearch" || "bubbleSort"` / `"bfs"` before the codegen redesign
-  // (spec/types.ts's StorySpec comment). A newly generated array
-  // algorithm (algoreel-mcp/src/algorithms/index.ts's dynamic registry)
-  // has an `input.array` exactly like the hand-written ones do, and gets
-  // this same check for free without checkRender needing to know its name.
-  switch (inputShape(spec.input)) {
-    case "array":
-      failures.push(...arrayWidthChecks((spec.input.array as unknown[]).length));
-      break;
-    case "graph": {
-      const overlap = graphOverlapCheck((spec.input.nodes as unknown[]).length);
-      if (overlap) failures.push(overlap);
-      break;
-    }
-    case "list":
-      failures.push(...listWidthChecks((spec.input.list as unknown[]).length));
-      break;
+  // Array width is keyed off input *shape*, not algorithm name — was
+  // `spec.algorithm === "binarySearch" || "bubbleSort"` before the
+  // codegen redesign (spec/types.ts's StorySpec comment). A newly
+  // generated array algorithm (algoreel-mcp/src/algorithms/index.ts's
+  // dynamic registry) has an `input.array` exactly like the hand-written
+  // ones do, and gets this same check for free without checkRender
+  // needing to know its name. Struct geometry (every node/link structure
+  // — lists, trees, graphs, ...) can't be measured from spec.input alone
+  // the same way: a tree's rendered depth/width depends on its *shape*,
+  // not just its node count, and shape only exists once the algorithm has
+  // actually run — so that check lives in checkpointChecks below, against
+  // the timeline's real checkpoints, using the exact same computeLayout
+  // StructureView will render with.
+  if (inputShape(spec.input) === "array") {
+    failures.push(...arrayWidthChecks((spec.input.array as unknown[]).length));
   }
 
   const timeline = buildTimeline(spec, FRAME.fps);
@@ -114,72 +112,80 @@ function maxArrayLength(): number {
   return Math.floor((FRAME.width + CELL.gap) / (CELL.size + CELL.gap));
 }
 
-// Mirrors arrayWidthChecks, but against LinkedListView's geometry: n real
-// nodes plus the one extra slot it always reserves for the permanent "∅"
-// terminal box (a null-pointer legend can also render, one slot to the
-// left of node 0, but — like ArrayView's pointer labels — that floats
-// outside the width budget rather than claiming its own slot; see
-// LinkedListView's own comment).
-function listWidthChecks(n: number): Check[] {
-  const totalSlots = n + 1;
-  const width = totalSlots * LIST.size + (totalSlots - 1) * LIST.gap;
-  if (width > FRAME.width) {
-    return [
-      {
-        severity: "error",
-        code: "list-too-wide",
-        message:
-          `list has ${n} nodes = ${width}px wide, wider than the ${FRAME.width}px frame ` +
-          `(LinkedListView never resizes nodes to fit — see tokens.ts's LIST comment) — ` +
-          `use at most ${maxListLength()} nodes.`,
-      },
-    ];
-  }
-  if (width > FRAME.width - EDGE_MARGIN) {
-    return [
-      {
-        severity: "warning",
-        code: "list-near-edge",
-        message:
-          `list has ${n} nodes = ${width}px wide, only ${FRAME.width - width}px from the frame edge ` +
-          `(captions use a ${EDGE_MARGIN}px inset) — consider fewer nodes for breathing room.`,
-      },
-    ];
-  }
-  return [];
-}
+// A single generic replacement for the old, per-layout listWidthChecks/
+// graphOverlapCheck: any node/link structure's *rendered* geometry
+// depends on its shape (a tree's width/depth), not just its node count,
+// and shape only exists once the algorithm has actually run — so this
+// scans every checkpoint the timeline actually produces, calling the
+// exact same computeLayout StructureView renders with, and reports the
+// single worst bounding-box overflow and the single tightest pairwise
+// node spacing found across the whole run. Strictly more coverage than
+// the two checks it replaces: this also catches a too-deep tree, which
+// neither one could (both only ever looked at the initial node count).
+function structGeometryChecks(timeline: Timeline): Check[] {
+  const failures: Check[] = [];
+  const maxHeight = FRAME.height - SAFE_AREA.top - SAFE_AREA.bottom;
 
-function maxListLength(): number {
-  const maxSlots = Math.floor((FRAME.width + LIST.gap) / (LIST.size + LIST.gap));
-  return maxSlots - 1;
-}
+  let worstOverflow: { width: number; height: number; layout: string; n: number } | null = null;
+  let tightest: { spacing: number; size: number; layout: string; n: number } | null = null;
 
-function graphOverlapCheck(n: number): Check | null {
-  if (n < 2) return null;
-  const spacing = 2 * NODE.radius * Math.sin(Math.PI / n);
-  if (spacing < NODE.size) {
-    return {
+  for (const step of timeline.steps) {
+    for (const cp of step.checkpoints) {
+      const { structLayout, structNodes, structLinks } = cp.state;
+      if (!structLayout || structNodes.length === 0) continue;
+
+      const { width, height, positions } = computeLayout(structLayout, structNodes, structLinks);
+      if (width > FRAME.width || height > maxHeight) {
+        if (!worstOverflow || width * height > worstOverflow.width * worstOverflow.height) {
+          worstOverflow = { width, height, layout: structLayout, n: structNodes.length };
+        }
+      }
+
+      const size = STRUCT[structLayout].size;
+      for (let i = 0; i < structNodes.length; i++) {
+        for (let j = i + 1; j < structNodes.length; j++) {
+          const a = positions[structNodes[i]!.id]!;
+          const b = positions[structNodes[j]!.id]!;
+          const spacing = Math.hypot(a.x - b.x, a.y - b.y);
+          if (spacing < size && (!tightest || spacing < tightest.spacing)) {
+            tightest = { spacing, size, layout: structLayout, n: structNodes.length };
+          }
+        }
+      }
+    }
+  }
+
+  if (worstOverflow) {
+    failures.push({
       severity: "error",
-      code: "graph-nodes-overlap",
+      code: "struct-too-large",
       message:
-        `graph has ${n} nodes, giving ${spacing.toFixed(0)}px between adjacent nodes on the fixed layout ` +
-        `circle (remotion/primitives/GraphView.tsx) — less than the ${NODE.size}px node size, so nodes ` +
-        `overlap. Use at most ${maxGraphNodes()} nodes.`,
-    };
+        `a "${worstOverflow.layout}"-layout structure with ${worstOverflow.n} nodes renders ` +
+        `${worstOverflow.width}x${worstOverflow.height}px, wider or taller than the available ` +
+        `${FRAME.width}x${maxHeight}px (StructureView never resizes nodes to fit — see tokens.ts's ` +
+        `STRUCT comment) — use fewer nodes or a shallower structure.`,
+    });
   }
-  return null;
-}
+  if (tightest) {
+    failures.push({
+      severity: "error",
+      code: "struct-nodes-overlap",
+      message:
+        `a "${tightest.layout}"-layout structure with ${tightest.n} nodes puts two nodes ${tightest.spacing.toFixed(0)}px ` +
+        `apart on the fixed layout — less than the ${tightest.size}px node size, so they overlap. ` +
+        `Use fewer nodes or a shallower structure.`,
+    });
+  }
 
-function maxGraphNodes(): number {
-  return Math.floor(Math.PI / Math.asin(NODE.size / (2 * NODE.radius)));
+  return failures;
 }
 
 function isBlankState(state: VisualState): boolean {
-  return state.array.length === 0 && state.nodes.length === 0 && state.listNodes.length === 0;
+  return state.array.length === 0 && state.structNodes.length === 0;
 }
 
 function checkpointChecks(timeline: Timeline): Check[] {
-  const failures: Check[] = [];
+  const failures: Check[] = [...structGeometryChecks(timeline)];
   const invisibleByBeat = new Map<string, number>();
   let blankCount = 0;
 
@@ -212,9 +218,9 @@ function checkpointChecks(timeline: Timeline): Check[] {
       severity: "error",
       code: "blank-checkpoint",
       message:
-        `${blankCount} checkpoint(s) render with no array, no graph nodes, and no list nodes — the screen ` +
-        `would be empty. This usually means the "intro" beat (or its absence) isn't seeding the ` +
-        `array/graph/list before the first op:N beat.`,
+        `${blankCount} checkpoint(s) render with no array and no struct nodes — the screen would be empty. ` +
+        `This usually means the "intro" beat (or its absence) isn't seeding the array/structure before the ` +
+        `first op:N beat.`,
     });
   }
 

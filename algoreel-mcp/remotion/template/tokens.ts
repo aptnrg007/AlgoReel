@@ -29,14 +29,31 @@ export const TYPE_SCALE = {
 // array doesn't fit at this size, the fix is a shorter array, not a smaller cell.
 export const CELL = { size: 120, gap: 22, radius: 18 } as const;
 
-// Graph nodes sit evenly spaced around a fixed circle (GraphView) — same
-// "never resize per element count" discipline as CELL. If a graph doesn't
-// fit at this size, the fix is fewer nodes, not a smaller layout.
-export const NODE = { size: 96, radius: 380 } as const;
-
-// Linked-list nodes sit in a single left-to-right row (LinkedListView) —
-// same "never resize per element count" discipline as CELL/NODE. `gap` is
-// much wider than CELL.gap because a directed arrow has to live in it;
-// `arcHeight` is how far a rewired (non-adjacent) link's arrow bows below
-// the row so it never crosses a pointer label stacked above.
-export const LIST = { size: 120, gap: 60, radius: 18, arcHeight: 90 } as const;
+// Fixed per-layout geometry for StructureView (remotion/primitives/
+// layout.ts computes positions from these; StructureView draws with
+// them) — one entry per LayoutKind (src/algorithms/types.ts), same
+// "never resize per element count" discipline as CELL: if a structure
+// doesn't fit, the fix is a smaller structure, not a smaller layout.
+// Numbers are carried over unchanged from the pre-generalization
+// LinkedListView (row) and GraphView (circle) so migrating both onto
+// this one engine doesn't change how they look.
+export const STRUCT = {
+  // A single left-to-right row (a former linked list, a stack drawn
+  // horizontally, ...). `gap` is wide because a directed arrow has to
+  // live in it; `arcHeight` is how far a rewired (non-adjacent) link's
+  // arrow bows below the row so it never crosses a pointer label
+  // stacked above.
+  row: { size: 120, gap: 60, radius: 18, arcHeight: 90 },
+  // A single top-to-bottom column (a stack). Narrower gap than row's —
+  // a column has no need to leave room for a directed arrow's label,
+  // just the arrowhead itself.
+  column: { size: 120, gap: 40, radius: 18 },
+  // Nodes arranged by tree depth (binary tree / BST / heap / trie).
+  // `hGap`/`vGap` are independent because a tree's width (how many
+  // leaves) and depth (how many levels) grow at different rates.
+  levels: { size: 100, hGap: 40, vGap: 140, radius: 18 },
+  // Nodes evenly spaced around a fixed circle (a graph) — position is
+  // purely a function of a node's index and the total count, no
+  // force-directed layout (that can't be checked before a render).
+  circle: { size: 96, radius: 380 },
+} as const;

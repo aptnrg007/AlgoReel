@@ -96,12 +96,13 @@ instructions: |
 
      If the topic isn't even array-shaped — a genuinely different data
      structure — check list_algorithms for a real match on that structure
-     first (reverseLinkedList genuinely exists now: real next-pointer
-     rewiring, rendered as connected nodes with directed arrows). If
-     nothing there genuinely matches — trees, general graphs beyond bfs,
-     any other linked-list operation — do not force-fit an existing
-     algorithm. Name the spec after whatever you actually run, not the
-     original request, if they don't match.
+     first. Three real ones exist now, rendered as actual connected
+     nodes, never blocks: reverseLinkedList (a real linked list),
+     inorderTraversal (a real binary tree), checkBalancedParens (a real
+     stack). If nothing there genuinely matches — trees or graphs beyond
+     those two, any other linked-list or stack operation — do not
+     force-fit an existing algorithm. Name the spec after whatever you
+     actually run, not the original request, if they don't match.
   3. Call run_algorithm({algorithm, input}) with the name you picked in
      step 2 (or the name ensure_algorithm returned), and read its
      summary and primaryStepCount. Base every "op:N" beat you write on

@@ -1,26 +1,38 @@
-import type { Operation } from "../../src/algorithms/types";
+import type { LayoutKind, Operation } from "../../src/algorithms/types";
 import { splitPrimarySteps } from "../../src/spec/beats";
 
 // One flat state bag covering every algorithm shape built so far — array
-// fields for binarySearch/bubbleSort, graph fields for bfs. Each rendering
-// primitive (ArrayView, GraphView) only reads the fields it cares about;
-// Video.tsx picks which one to mount based on spec.algorithm. Kept unified
-// (rather than a union type per algorithm shape) so Checkpoint/Timeline and
-// the beat-grouping/checkpoint-allocation math below stay exactly as
-// written for every algorithm — they never touch these fields directly.
+// fields for binarySearch/bubbleSort/etc., struct fields for every
+// node/link structure (linked lists, trees, graphs, stacks, ...), rendered
+// by ArrayView or StructureView respectively (remotion/Video.tsx picks
+// which one to mount via src/spec/inputShape.ts). Kept unified (rather
+// than a union type per algorithm shape) so Checkpoint/Timeline and the
+// beat-grouping/checkpoint-allocation math below stay exactly as written
+// for every algorithm — they never touch these fields directly.
 export interface VisualState {
   array: number[];
   pointers: Record<string, number>;
   highlights: Record<number, "focus" | "found" | "dead">;
   discarded: Set<number>;
-  nodes: string[];
-  edges: [string, string][];
-  nodeStatus: Record<string, "queued" | "current" | "visited">;
-  edgeStatus: Record<string, "active" | "used">;
-  listNodes: { id: string; value: number }[];
-  listNext: Record<string, string | null>;
-  listPointers: Record<string, string | null>;
-  listFocus: Set<string>;
+  structLayout: LayoutKind | null;
+  structNodes: { id: string; value: string | number }[];
+  // Undirected, declared once and never rewired (a graph's edges) — see
+  // the "struct" op's own comment for why this is separate from
+  // structLinks.
+  structEdges: [string, string][];
+  // Directed, current links only — a "link" op with `to: null` removes
+  // the (from, slot) entry rather than storing a null target. Unlike the
+  // pre-generalization LinkedListView, a rewired-to-null link simply
+  // isn't drawn (no arrow), rather than rendering an explicit "∅" stub —
+  // a deliberate simplification once this had to generalize to trees
+  // (a real tree diagram doesn't draw a box for every leaf's missing
+  // child) and graphs (no concept of a null edge at all). "Where did the
+  // pointer go" is still visible via structPointers, which does keep
+  // explicit nulls (a nodePointer floating with no node under it).
+  structLinks: { from: string; slot: string; to: string }[];
+  structNodeState: Record<string, "focus" | "pending" | "done" | "dead">;
+  structLinkState: Record<string, "active" | "used">;
+  structPointers: Record<string, string | null>;
 }
 
 export const INITIAL_STATE: VisualState = {
@@ -28,21 +40,25 @@ export const INITIAL_STATE: VisualState = {
   pointers: {},
   highlights: {},
   discarded: new Set(),
-  nodes: [],
-  edges: [],
-  nodeStatus: {},
-  edgeStatus: {},
-  listNodes: [],
-  listNext: {},
-  listPointers: {},
-  listFocus: new Set(),
+  structLayout: null,
+  structNodes: [],
+  structEdges: [],
+  structLinks: [],
+  structNodeState: {},
+  structLinkState: {},
+  structPointers: {},
 };
 
-// Undirected edges can be declared/traversed in either order — normalize to
-// one key so GraphView's lookups agree with whatever order applyOperation
+// Undirected pairs (a graph's edges, or a linkState lookup) can be
+// declared/traversed in either order — normalize to one key so
+// StructureView's lookups agree with whatever order applyOperation
 // stored a status under.
 export function edgeKey(a: string, b: string): string {
   return [a, b].sort().join("::");
+}
+
+function linkKey(from: string, slot: string): string {
+  return `${from}|${slot}`;
 }
 
 // The renderer's only job: fold operations into visual state. This must
@@ -88,39 +104,30 @@ export function applyOperation(state: VisualState, op: Operation): VisualState {
       array[op.index] = op.value;
       return { ...state, array };
     }
-    case "graph":
-      return { ...state, nodes: op.nodes, edges: op.edges };
-    case "enqueue":
-      return { ...state, nodeStatus: { ...state.nodeStatus, [op.node]: "queued" } };
-    case "dequeue": {
-      const nodeStatus = { ...state.nodeStatus, [op.node]: "current" as const };
-      // "current" is a transient spotlight, the graph analog of a "focus"
-      // highlight — likewise, edges lit "active" by the previous step
-      // settle into "used" (still visible, just no longer the newest thing)
-      // once a new step begins.
-      const edgeStatus = { ...state.edgeStatus };
-      for (const key of Object.keys(edgeStatus)) {
-        if (edgeStatus[key] === "active") edgeStatus[key] = "used";
+    case "struct":
+      return { ...state, structLayout: op.layout, structNodes: op.nodes, structEdges: op.edges ?? [] };
+    case "link": {
+      const kept = state.structLinks.filter((l) => linkKey(l.from, l.slot) !== linkKey(op.from, op.slot));
+      const structLinks = op.to === null ? kept : [...kept, { from: op.from, slot: op.slot, to: op.to }];
+      return { ...state, structLinks };
+    }
+    case "nodeState": {
+      const structNodeState = { ...state.structNodeState };
+      // Same "focus" special case as "highlight" above, and for the same
+      // reason: a spotlight that isn't cleared when a new one arrives
+      // elsewhere leaves stale nodes lit forever.
+      if (op.state === "focus") {
+        for (const id of Object.keys(structNodeState)) {
+          if (structNodeState[id] === "focus") delete structNodeState[id];
+        }
       }
-      return { ...state, nodeStatus, edgeStatus };
+      for (const id of op.nodes) structNodeState[id] = op.state;
+      return { ...state, structNodeState };
     }
-    case "visit":
-      return { ...state, nodeStatus: { ...state.nodeStatus, [op.node]: "visited" } };
-    case "edge":
-      return { ...state, edgeStatus: { ...state.edgeStatus, [edgeKey(op.from, op.to)]: op.state } };
-    case "list": {
-      const listNext: Record<string, string | null> = {};
-      op.nodes.forEach((node, i) => {
-        listNext[node.id] = op.nodes[i + 1]?.id ?? null;
-      });
-      return { ...state, listNodes: op.nodes, listNext };
-    }
-    case "relink":
-      return { ...state, listNext: { ...state.listNext, [op.from]: op.to } };
-    case "listPointer":
-      return { ...state, listPointers: { ...state.listPointers, [op.name]: op.node } };
-    case "listFocus":
-      return { ...state, listFocus: new Set(op.nodes) };
+    case "linkState":
+      return { ...state, structLinkState: { ...state.structLinkState, [edgeKey(op.from, op.to)]: op.state } };
+    case "nodePointer":
+      return { ...state, structPointers: { ...state.structPointers, [op.name]: op.node } };
     case "compare":
     case "done":
       return state;

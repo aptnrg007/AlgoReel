@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "topic": "checking balanced parentheses with a stack",
+  "algorithm": "checkBalancedParens",
+  "input": {
+    "expression": "(()())"
+  },
+  "targetDurationSec": 28,
+  "hook": "How does a computer check if your brackets actually match? One stack.",
+  "narration": [
+    { "beat": "intro", "text": "A stack only ever lets you touch the item on top — last in, first out." },
+    { "beat": "op:0", "text": "Every opening bracket gets pushed onto the stack." },
+    { "beat": "op:1", "text": "Every closing bracket checks the top of the stack — if it matches, pop it off." },
+    { "beat": "outro", "text": "Every push found a matching pop, and the stack ended empty — the brackets are balanced." }
+  ],
+  "emphasis": ["STACK", "PUSH", "POP"],
+  "complexity": { "time": "O(n)", "space": "O(n)" },
+  "youtube": {
+    "title": "Checking Balanced Brackets With a Stack",
+    "description": "How a stack checks whether brackets are balanced — push on every opener, pop and match on every closer.",
+    "tags": ["dsa", "algorithms", "stack", "coding-interview"]
+  }
+}

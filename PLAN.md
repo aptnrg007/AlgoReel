@@ -667,26 +667,51 @@ covered by any of this — Phase A and the algorithm agent are both
 array-only. A `TracedGraph` equivalent is a natural follow-up but hasn't
 been built.
 
-**Linked lists got a real primitive of their own**, one structure at a
-time, the same way `bfs` earned `GraphView`: `LinkedListView` (nodes in a
-row, directed pointer arrows — arcing below the row for a rewired,
-non-adjacent link) plus four new `Operation` variants (`list`, `relink`,
-`listPointer`, `listFocus`) and a hand-written `reverseLinkedList`
-algorithm proving them, the same phasing arrays used before Phase A's
-codegen generalized them (hand-write one example first). `Video.tsx` and
-`checkRender.ts` both dispatch off one shared `inputShape()` helper
-(`src/spec/inputShape.ts`) now, rather than the name-based/shape-based
-split that used to exist between them.
+**Linked lists got a real primitive of their own first** — `LinkedListView`
+(nodes in a row, directed pointer arrows) plus four new `Operation`
+variants and a hand-written `reverseLinkedList` proving them, the same
+phasing arrays used before Phase A's codegen generalized them (hand-write
+one example first). That primitive was then **generalized once a second
+structure (`bfs`'s graph) needed the same kind of thing**: every node/link
+structure — a linked list's row, a graph's circle, a tree's levels, a
+stack's column — turned out to be one renderer (`StructureView.tsx`)
+parameterized by a declared `layout: "row" | "column" | "levels" |
+"circle"` (`remotion/primitives/layout.ts`, pure layout functions with no
+React/Remotion imports so `checkRender.ts` can call the exact geometry the
+renderer will actually use, pre-render). `LinkedListView` and `GraphView`
+were deleted once `StructureView` reproduced both exactly. The operation
+vocabulary collapsed to six structure-neutral ops (`struct`, `link`,
+`nodeState`, `linkState`, `nodePointer`, plus array's existing ones) —
+`nodeState`'s "focus" value folds in what was briefly a separate
+"nodeFocus" set, after a real correctness bug surfaced during that split
+(a stale focus could mask a later "done" on the same node, since nothing
+cleared the old focus set on an unrelated state change — the same failure
+class `highlight`'s existing stale-focus-clearing already exists to
+prevent for arrays). `Video.tsx` and `checkRender.ts` both dispatch off
+one shared `inputShape()` helper (`src/spec/inputShape.ts`, now
+`"array" | "struct"`) rather than the name-based/shape-based split that
+used to exist between them.
 
-Trees, general graphs beyond `bfs`, and DB/table structures **remain**
-fully out of scope, as does any codegen path for lists — `ensure_algorithm`
-still rejects any `structure` other than `"array"` mechanically, and
-`script.yaml` is instructed to say so honestly for whatever's still
-missing rather than force a mismatched algorithm into that slot, the same
-failure mode this phase already fixed once, one level more subtle (an
-honestly-coded algorithm can still get a dishonest narration wrapped
-around it — also found live and fixed, see `script.yaml`'s STATUS
-comment).
+Proven with **zero changes to `StructureView.tsx` or `layout.ts`**: a
+binary tree in-order traversal (`inorderTraversal`, `"levels"` layout,
+left-then-node-then-right, no comparisons) and a stack-based balanced-
+parentheses check (`checkBalancedParens`, `"column"` layout — the one
+structure whose *node set itself* changes over time, handled by
+re-declaring `struct` with the current contents on every push/pop rather
+than adding a new operation for it). Adding either cost exactly one
+algorithm file, one registry entry, and one demo spec — the generalization
+this phase set out to prove.
+
+General graphs beyond `bfs`, general trees beyond in-order traversal
+(insertion, deletion, other traversal orders), hash tables, and DB/table
+structures **remain** fully out of scope, as does any codegen path for
+non-array structures — `ensure_algorithm` still rejects any `structure`
+other than `"array"` mechanically, and `script.yaml` is instructed to say
+so honestly for whatever's still missing rather than force a mismatched
+algorithm into that slot, the same failure mode this phase already fixed
+once, one level more subtle (an honestly-coded algorithm can still get a
+dishonest narration wrapped around it — also found live and fixed, see
+`script.yaml`'s STATUS comment).
 
 Avoid early: quicksort (recursion + partitioning is two hard things), anything DP (tables are a whole separate primitive), anything with a call stack visualisation. (These were "avoid early" for *hand-writing*; codegen makes quicksort specifically no harder than merge sort to add now, since the agent — not a human — writes the partitioning logic.)
 

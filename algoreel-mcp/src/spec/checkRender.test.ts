@@ -96,7 +96,7 @@ test("n=5 array is clean — no width failures at all", () => {
   assert.equal(result.pass, true);
 });
 
-test("graph-nodes-overlap fires for a 25-node graph on the fixed layout circle", () => {
+test("struct-nodes-overlap fires for a 25-node graph on the fixed layout circle", () => {
   const nodes = Array.from({ length: 25 }, (_, i) => `n${i}`);
   const edges: [string, string][] = nodes.slice(1).map((n, i) => [nodes[i]!, n]);
   const spec: StorySpec = {
@@ -116,7 +116,7 @@ test("graph-nodes-overlap fires for a 25-node graph on the fixed layout circle",
     input: { nodes, edges, start: nodes[0]! },
   };
   const result = checkRender(spec);
-  assert.ok(codesOf(result).includes("graph-nodes-overlap"));
+  assert.ok(codesOf(result).includes("struct-nodes-overlap"));
   assert.equal(result.pass, false);
 });
 
@@ -177,7 +177,36 @@ test("Phase 4 exit criterion: a 40-element array with 90s target and thin narrat
   assert.equal(result.pass, false);
 });
 
-test("list-too-wide fires at n=6 and not below", () => {
+// Row-layout geometry: width(n) = (n-1)*(STRUCT.row.size+STRUCT.row.gap) +
+// STRUCT.row.size = 180n - 60 (tokens.ts). n=6 -> 1020px (fits the
+// 1080px frame); n=7 -> 1200px (doesn't). No terminal-box slot is added
+// to this budget any more — a rewired-to-null link is drawn as an
+// absence, not an extra reserved node-sized box (state.ts's structLinks
+// comment) — so this genuinely fits one more real node than the
+// pre-generalization LinkedListView's same check did.
+test("struct-too-large fires at n=7 nodes (row layout) and not at n=6", () => {
+  const spec: StorySpec = {
+    version: 1,
+    topic: "t",
+    targetDurationSec: 30,
+    hook: "h",
+    narration: [
+      { beat: "intro", text: longText(3) },
+      { beat: "op:0", text: longText(10) },
+      { beat: "outro", text: longText(5) },
+    ],
+    emphasis: [],
+    complexity: COMPLEXITY,
+    youtube: YOUTUBE,
+    algorithm: "reverseLinkedList",
+    input: { list: [1, 2, 3, 4, 5, 6, 7] },
+  };
+  const result = checkRender(withMatchedDuration(spec));
+  assert.ok(codesOf(result).includes("struct-too-large"));
+  assert.equal(result.pass, false);
+});
+
+test("n=6 nodes (row layout) sits right at the width boundary and is still clean", () => {
   const spec: StorySpec = {
     version: 1,
     topic: "t",
@@ -195,54 +224,8 @@ test("list-too-wide fires at n=6 and not below", () => {
     input: { list: [1, 2, 3, 4, 5, 6] },
   };
   const result = checkRender(withMatchedDuration(spec));
-  assert.ok(codesOf(result).includes("list-too-wide"));
-  assert.equal(result.pass, false);
-});
-
-test("list-near-edge warns at n=5 without failing the render", () => {
-  const spec: StorySpec = {
-    version: 1,
-    topic: "t",
-    targetDurationSec: 30,
-    hook: "h",
-    narration: [
-      { beat: "intro", text: longText(3) },
-      { beat: "op:0", text: longText(10) },
-      { beat: "outro", text: longText(5) },
-    ],
-    emphasis: [],
-    complexity: COMPLEXITY,
-    youtube: YOUTUBE,
-    algorithm: "reverseLinkedList",
-    input: { list: [1, 2, 3, 4, 5] },
-  };
-  const result = checkRender(withMatchedDuration(spec));
-  const warning = result.failures.find((f) => f.code === "list-near-edge");
-  assert.ok(warning);
-  assert.equal(warning.severity, "warning");
-  assert.equal(result.pass, true);
-});
-
-test("n=4 list is clean — no width failures at all", () => {
-  const spec: StorySpec = {
-    version: 1,
-    topic: "t",
-    targetDurationSec: 30,
-    hook: "h",
-    narration: [
-      { beat: "intro", text: longText(3) },
-      { beat: "op:0", text: longText(10) },
-      { beat: "outro", text: longText(5) },
-    ],
-    emphasis: [],
-    complexity: COMPLEXITY,
-    youtube: YOUTUBE,
-    algorithm: "reverseLinkedList",
-    input: { list: [1, 2, 3, 4] },
-  };
-  const result = checkRender(withMatchedDuration(spec));
-  assert.ok(!codesOf(result).includes("list-too-wide"));
-  assert.ok(!codesOf(result).includes("list-near-edge"));
+  assert.ok(!codesOf(result).includes("struct-too-large"));
+  assert.ok(!codesOf(result).includes("struct-nodes-overlap"));
   assert.ok(!codesOf(result).includes("blank-checkpoint"));
   assert.equal(result.pass, true);
 });
@@ -257,6 +240,25 @@ test("committed reverse-linked-list-demo.json is clean end to end", () => {
 
 test("committed bubble-sort-demo.json is clean end to end", () => {
   const raw = readFileSync(join(import.meta.dirname, "../../specs/bubble-sort-demo.json"), "utf8");
+  const spec = JSON.parse(raw) as StorySpec;
+  const result = checkRender(spec);
+  assert.deepEqual(result.failures, []);
+  assert.equal(result.pass, true);
+});
+
+// Phase 2 proof cases: a "levels" layout (a tree) and a "column" layout
+// (a stack) go through the exact same checkRender path as every other
+// structure, with zero changes to checkRender.ts itself.
+test("committed inorder-traversal-demo.json is clean end to end", () => {
+  const raw = readFileSync(join(import.meta.dirname, "../../specs/inorder-traversal-demo.json"), "utf8");
+  const spec = JSON.parse(raw) as StorySpec;
+  const result = checkRender(spec);
+  assert.deepEqual(result.failures, []);
+  assert.equal(result.pass, true);
+});
+
+test("committed balanced-parens-demo.json is clean end to end", () => {
+  const raw = readFileSync(join(import.meta.dirname, "../../specs/balanced-parens-demo.json"), "utf8");
   const spec = JSON.parse(raw) as StorySpec;
   const result = checkRender(spec);
   assert.deepEqual(result.failures, []);

@@ -310,26 +310,38 @@ Following the phased plan in `PLAN.md` §9:
   no escalation to a paid model when it fails. See `PLAN.md` §10 and
   §11.
 
-- **Linked lists — a real visual primitive, closing the original bug for
-  good.** Every algorithm up to this point was forced through one of two
-  shapes, `ArrayView`'s blocks or `GraphView`'s circle-of-nodes-with-
-  undirected-edges. Neither can honestly represent a linked list: a
-  reversal needs *directed, mutable* pointers, and `GraphView`'s edges are
-  declared once and never change. New: `LinkedListView` (a left-to-right
-  row of nodes with directed arrows — straight across the gap for a
-  forward link, arcing below the row for anything rewired) plus four new
-  `Operation` variants (`list`, `relink`, `listPointer`, `listFocus`) and
-  a hand-written `reverseLinkedList`, following the same phasing arrays
-  used before Phase A's codegen generalized them — prove the primitive
-  and vocabulary with one real example first. `Video.tsx` and
-  `checkRender.ts` now both dispatch off one shared `inputShape()` helper
-  instead of the name-based/shape-based split that used to exist between
-  them. Scoped deliberately to linked lists only, DSA structures, no DB
-  tables — trees, general graphs beyond `bfs`, and list codegen all
-  remain out of scope. `./preview.sh "reversing a linked list"` now
-  produces the real thing: a `reverseLinkedList` spec, rendered as
-  connected nodes with pointer arrows actually rewiring direction, not a
-  fallback array algorithm.
+- **A generic structure engine — one renderer for every node/link shape,
+  not one per structure.** Linked lists first got their own primitive
+  (`LinkedListView`, closing the original bug: `ArrayView`'s blocks and
+  `GraphView`'s undirected edges couldn't honestly represent a reversal's
+  *directed, mutable* pointers). Then the pattern generalized: a linked
+  list's row, a graph's circle, a tree's levels, a stack's column are all
+  the same thing — nodes placed by a declared layout, connected by links
+  or not. One component now handles all of them, **`StructureView.tsx`**,
+  driven by pure layout functions (`remotion/primitives/layout.ts`:
+  `row`/`column`/`levels`/`circle`, no force-directed layouts — those
+  can't be checked before a render) that `checkRender.ts` calls with the
+  exact same geometry the renderer will actually use. `LinkedListView` and
+  `GraphView` were deleted once `StructureView` reproduced both exactly.
+  The operation vocabulary collapsed to six structure-neutral types
+  (`struct`, `link`, `nodeState`, `linkState`, `nodePointer`, plus
+  array's own) — down from the linked-list-specific and graph-specific
+  sets that came before. `Video.tsx` and `checkRender.ts` both dispatch
+  off one shared `inputShape()` helper (`"array" | "struct"`) instead of
+  the name-based/shape-based split that used to exist between them.
+
+  Proven with a real exit criterion, not just an inline claim: a binary
+  tree in-order traversal (`inorderTraversal`, `"levels"` layout) and a
+  stack-based balanced-parentheses check (`checkBalancedParens`,
+  `"column"` layout) were both added with **zero changes** to
+  `StructureView.tsx` or `layout.ts` — each cost exactly one algorithm
+  file, one registry entry, one demo spec, the same shape adding
+  `reverseLinkedList` itself took. General graphs beyond `bfs`, general
+  trees beyond in-order traversal, hash tables, and DB tables remain out
+  of scope, as does any codegen path for non-array structures.
+  `./preview.sh "reversing a linked list"` (or a tree/stack topic) now
+  produces the real thing, rendered as connected nodes with pointers
+  actually moving, not a fallback array algorithm.
 
   **A second, more fundamental gap, also found live:** asking for
   `"linear search"` burned all 3 retry attempts every single time,
@@ -485,39 +497,53 @@ an unattended run.
 
 ## Algorithms
 
-Four hand-written algorithms, one per structure/rendering shape:
-`binarySearch`, `bubbleSort`, `bfs`, and `reverseLinkedList`. Each new
-structure earned exactly the operations it genuinely needed and nothing
-more (`PLAN.md` §10's discipline rule) — `bfs` added `graph` (the
-graph-shaped analog of `init`: declares the full node/edge set up front,
-the same way `init` gives array algorithms a fixed set of cells from frame
-0) plus `visit`/`enqueue`/`dequeue`/`edge`; `reverseLinkedList` added
-`list` (the list-shaped analog of `init`/`graph`), `relink`,
-`listPointer`, and `listFocus` — a linked list needed its own vocabulary
-rather than reusing graph's `edge` because a list's links are *directed
-and mutable* (a reversal rewires them one at a time), while a graph's
-`edges` are declared once and never change.
+Six hand-written algorithms: `binarySearch`, `bubbleSort` (array-shaped),
+and `bfs`, `reverseLinkedList`, `inorderTraversal`, `checkBalancedParens`
+(node/link-shaped). The array algorithms render via `ArrayView`; every
+node/link algorithm — regardless of whether it's a list, a graph, a tree,
+or a stack — renders via one shared `StructureView`, driven by a `layout`
+(`"row" | "column" | "levels" | "circle"`) the algorithm declares in its
+first operation. Adding `bfs`'s graph and `reverseLinkedList`'s list each
+started as their own hand-rolled vocabulary and view; once a *third*
+structure needed the same kind of thing, they generalized into one:
+`struct` (declares nodes + a layout, the node/link analog of `init`),
+`link` (one directed link, addressed by `(from, slot)` so a tree can have
+both `left` and `right`), `nodeState` (a node's visual state, including
+"focus" — the step boundary), `linkState` (an edge/link's active/used
+status), `nodePointer` (a named pointer, e.g. `head`/`prev`/`curr`).
+Six operation types now cover every structure, replacing what used to be
+two separate, structure-specific sets.
 
-Rendering picks `ArrayView`, `GraphView`, or `LinkedListView` based on the
-spec's input *shape* (`src/spec/inputShape.ts`, also used by
+Rendering picks `ArrayView` or `StructureView` based on the spec's input
+*shape* (`src/spec/inputShape.ts`: `"array" | "struct"`, also used by
 `checkRender.ts`'s layout checks, so the two can't disagree about what
-kind of structure a spec is); all three fold from the same operation log
-through the same `VisualState`, `buildTimeline`, and beat-grouping
-pipeline with no other special-casing. `LinkedListView` draws directed
-arrows between nodes — straight across the gap for a forward-adjacent
-link, arcing below the row for anything else (a rewired backward pointer,
-or a non-tail node pointing at the shared `∅` terminal box) — the one
-rendering capability none of the other views needed.
+kind of structure a spec is). `StructureView`'s geometry comes from pure
+layout functions (`remotion/primitives/layout.ts`) with no React/Remotion
+imports, specifically so `checkRender.ts` can call the exact same code
+the renderer will use to catch overlap/overflow *before* the render —
+deliberately no force-directed layout, since that can't be predicted
+ahead of time. `row`/`column` place nodes by index; `circle` (a graph)
+places them evenly around a fixed radius; `levels` (a tree) derives depth
+by walking `left`/`right` links from the root and x-position from an
+in-order walk, so a left child always renders left of its parent.
 
-Trees, general graphs beyond `bfs`, and DB/table structures remain out of
-scope, and still need their own visual primitives if ever added.
+This was proven, not just claimed: `inorderTraversal` (a `"levels"` tree)
+and `checkBalancedParens` (a `"column"` stack, the one structure whose
+node set itself changes over time — handled by re-declaring `struct` with
+the current contents on every push/pop, not a new operation) were both
+added with **zero changes** to `StructureView.tsx` or `layout.ts`. Each
+cost exactly one algorithm file, one registry entry, one demo spec.
 
-Beyond those four, any array-shaped algorithm (sorting, searching, two
+General graphs beyond `bfs`, general trees beyond in-order traversal
+(insertion, deletion, other traversal orders), hash tables, and DB/table
+structures remain out of scope.
+
+Beyond those six, any array-shaped algorithm (sorting, searching, two
 pointers, ...) can be added without touching this repo by hand — call
 `ensure_algorithm`, described above, which writes and validates one via
 a dedicated local-model agent if it isn't cached yet.
 `algorithms/generated/` holds whatever's been validated and cached so
 far; `list_algorithms`' `generated: true` field tells the agent (and
 you) which entries came from that path versus were hand-written.
-Codegen is still array-only — a generated linked-list implementation
-isn't supported yet.
+Codegen is still array-only — a generated non-array implementation isn't
+supported yet.
