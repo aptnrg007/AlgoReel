@@ -5,30 +5,39 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getAlgorithmByNormalizedName, normalizeAlgorithmName } from "./index";
-import { generateAndValidateAlgorithm, GenerateAlgorithmError } from "./sandbox";
+import { generateAndValidateAlgorithm, generateAndValidateGraphAlgorithm, GenerateAlgorithmError } from "./sandbox";
 
 // The algorithm agent (PLAN.md's follow-up to Phase A): script.yaml no
 // longer writes algorithm implementations itself — it asks for one by
 // name via ensure_algorithm, which either finds it already cached or
-// gets a dedicated, toolless specialist agent (algorithm.yaml) to write
-// one, feeding sandbox.ts's real validator errors back on failure. The
-// retry loop lives here, in TypeScript, not inside algorithm.yaml's own
-// AgentForge turn loop — algorithm.yaml runs on a small local model, and
+// gets a dedicated, toolless specialist agent to write one (algorithm.yaml
+// for arrays, algorithm-graph.yaml for graphs — STRUCTURE_DISPATCH below
+// picks which), feeding sandbox.ts's real validator errors back on
+// failure. The retry loop lives here, in TypeScript, not inside either
+// agent's own AgentForge turn loop — both run on a small local model, and
 // a toolless "read prompt, emit code" turn is the most reliable thing to
 // ask of one; multi-round tool-call self-correction is exactly what this
 // project's local-model testing already found qwen3 unreliable at (see
 // script.free.yaml's STATUS comment).
-// Sorting only, not searching — sandbox.ts's correctness check compares
-// the sandboxed result against the array sorted ascending, which has no
-// meaning for a search. Not mechanically enforced here (there's no cheap
-// way to detect "this is a search" from a name string alone); found live
-// instead, the expensive way: asking for "linear search" burned all 3
-// retry attempts every time, because a correct linear search never
-// produces a sorted array, so validator 1 rejected it regardless of code
-// quality. script.yaml's instructions are the actual guardrail — they
-// tell the agent not to call this for a search.
+//
+// Array structure: sorting only, not searching — sandbox.ts's
+// correctness check compares the sandboxed result against the array
+// sorted ascending, which has no meaning for a search. Not mechanically
+// enforced here (there's no cheap way to detect "this is a search" from
+// a name string alone); found live instead, the expensive way: asking
+// for "linear search" burned all 3 retry attempts every time, because a
+// correct linear search never produces a sorted array, so validator 1
+// rejected it regardless of code quality. script.yaml's instructions are
+// the actual guardrail — they tell the agent not to call this for a
+// search.
+//
+// Graph structure: bfs/dfs only, and *this* one IS mechanically enforced
+// (sandbox.ts's GRAPH_REFERENCE lookup rejects anything else immediately,
+// before ever running the sandbox) — unlike "is this a search," "is this
+// bfs or dfs" is exactly checkable from the name.
 const MCP_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ALGORITHM_AGENT_PATH = join(MCP_ROOT, "..", "algoreel-agents", "agents", "algorithm.yaml");
+const ALGORITHM_GRAPH_AGENT_PATH = join(MCP_ROOT, "..", "algoreel-agents", "agents", "algorithm-graph.yaml");
 const AGENTFORGE_BIN = process.env.AGENTFORGE_BIN || "agentforge";
 const MAX_ATTEMPTS = 3;
 
@@ -40,6 +49,23 @@ const MAX_ATTEMPTS = 3;
 // cached, run_algorithm's registry fast path runs it against any real
 // input with no re-validation.
 const VALIDATION_ARRAY = [38, 27, 43, 3, 9, 82, 10, 15, 22, 5];
+
+// Same idea, for the graph path — reuses specs/bfs-demo.json's exact
+// graph (A..F, plus an unreachable G to exercise "don't visit what isn't
+// reachable"), so its correct BFS order is already cross-checked against
+// that demo's own known-correct narration, not just this file's say-so.
+const VALIDATION_GRAPH: { nodes: string[]; edges: [string, string][]; start: string } = {
+  nodes: ["A", "B", "C", "D", "E", "F", "G"],
+  edges: [
+    ["A", "B"],
+    ["A", "C"],
+    ["B", "D"],
+    ["C", "D"],
+    ["C", "E"],
+    ["E", "F"],
+  ],
+  start: "A",
+};
 
 export class EnsureAlgorithmError extends Error {}
 
@@ -82,7 +108,7 @@ function stripFence(text: string): string {
     .trim();
 }
 
-async function runAlgorithmAgent(prompt: string): Promise<string> {
+async function runAlgorithmAgent(prompt: string, agentPath: string): Promise<string> {
   const work = mkdtempSync(join(tmpdir(), "algoreel-algo-"));
   try {
     const promptPath = join(work, "prompt.txt");
@@ -101,7 +127,7 @@ async function runAlgorithmAgent(prompt: string): Promise<string> {
       // on) ~/.agentforge/agentforge.db with any concurrent run.
       const child = spawn(
         AGENTFORGE_BIN,
-        ["run", ALGORITHM_AGENT_PATH, "-m", `@${promptPath}`, "--output-format", "json", "--output", outputPath, "--db", dbPath],
+        ["run", agentPath, "-m", `@${promptPath}`, "--output-format", "json", "--output", outputPath, "--db", dbPath],
         { stdio: ["ignore", "pipe", "pipe"] },
       );
       let stderr = "";
@@ -149,18 +175,39 @@ async function runAlgorithmAgent(prompt: string): Promise<string> {
   }
 }
 
+// One dispatch table entry per supported structure — everything that
+// differs between the array and graph codegen paths (which agent writes
+// the code, which sandbox.ts validator checks it, what fixed input
+// validates it) lives here; the retry loop below (attempt counting,
+// feeding each failure's error into the next prompt) is identical either
+// way and never needs to know which structure it's driving.
+const STRUCTURE_DISPATCH: Record<
+  string,
+  { agentPath: string; validate: (name: string, description: string, code: string) => Promise<unknown> }
+> = {
+  array: {
+    agentPath: ALGORITHM_AGENT_PATH,
+    validate: (name, description, code) =>
+      generateAndValidateAlgorithm({ name, description, code, input: { array: VALIDATION_ARRAY } }),
+  },
+  graph: {
+    agentPath: ALGORITHM_GRAPH_AGENT_PATH,
+    validate: (name, description, code) =>
+      generateAndValidateGraphAlgorithm({ name, description, code, input: VALIDATION_GRAPH }),
+  },
+};
+
 export async function ensureAlgorithm(
   req: { algorithm: string; description?: string; structure?: string },
   deps: EnsureAlgorithmDeps = {},
 ): Promise<EnsureAlgorithmResult> {
-  // Phase A (and this agent) only cover array-shaped algorithms — the
-  // same boundary script.yaml's instructions previously enforced only in
-  // prose. Enforcing it here means a caller can't accidentally slip a
-  // linked-list/tree request through and get a mismatched array
-  // algorithm back with a straight face.
-  if (req.structure !== undefined && req.structure !== "array") {
+  const structureKey = req.structure ?? "array";
+  const dispatch = STRUCTURE_DISPATCH[structureKey];
+  if (!dispatch) {
     throw new EnsureAlgorithmError(
-      `ensure_algorithm only supports structure: "array" right now (got "${req.structure}") — linked lists, trees, and graphs aren't covered by this codegen path.`,
+      `ensure_algorithm only supports structure: "array" or "graph" right now (got "${req.structure}") — ` +
+        `linked lists, trees, and stacks aren't covered by this codegen path yet (they're hand-written instead — ` +
+        `call list_algorithms to see what's already available).`,
     );
   }
 
@@ -172,7 +219,7 @@ export async function ensureAlgorithm(
     return { name: key, description: existing.description, attempts: 0, alreadyExisted: true };
   }
 
-  const generateCode = deps.generateCode ?? runAlgorithmAgent;
+  const generateCode = deps.generateCode ?? ((prompt: string) => runAlgorithmAgent(prompt, dispatch.agentPath));
   const description = req.description || `Implementation of ${req.algorithm}, generated by the algorithm agent.`;
 
   const errors: string[] = [];
@@ -183,12 +230,7 @@ export async function ensureAlgorithm(
     const code = await generateCode(prompt);
 
     try {
-      await generateAndValidateAlgorithm({
-        name: req.algorithm,
-        description,
-        code,
-        input: { array: VALIDATION_ARRAY },
-      });
+      await dispatch.validate(req.algorithm, description, code);
       return { name: key, description, attempts: attempt, alreadyExisted: false };
     } catch (err) {
       const message = err instanceof GenerateAlgorithmError ? err.message : err instanceof Error ? err.message : String(err);

@@ -336,9 +336,8 @@ Following the phased plan in `PLAN.md` §9:
   `"column"` layout) were both added with **zero changes** to
   `StructureView.tsx` or `layout.ts` — each cost exactly one algorithm
   file, one registry entry, one demo spec, the same shape adding
-  `reverseLinkedList` itself took. General graphs beyond `bfs`, general
-  trees beyond in-order traversal, hash tables, and DB tables remain out
-  of scope, as does any codegen path for non-array structures.
+  `reverseLinkedList` itself took. General trees beyond in-order
+  traversal, hash tables, and DB tables remain out of scope.
   `./preview.sh "reversing a linked list"` (or a tree/stack topic) now
   produces the real thing, rendered as connected nodes with pointers
   actually moving, not a fallback array algorithm.
@@ -392,6 +391,34 @@ Following the phased plan in `PLAN.md` §9:
   now runs on `algoreel-coder` (`algoreel-agents/Modelfile.coder`), the
   same context-headroom treatment `algoreel-llama` already gets, though
   it wasn't confirmed as the actual fix for this incident.
+
+- **Codegen generalized past array-only, to graph traversal.** Rendering
+  already generalized (above); the remaining manual work was always the
+  algorithm *logic* itself — every structure algorithm so far was
+  hand-written, one file at a time. `ensure_algorithm` already solved
+  exactly this for arrays; extending it to a structure needed a real
+  correctness oracle as cheap as "is it sorted," which doesn't exist for
+  structures in general — but BFS and DFS are each fully deterministic
+  given a fixed sorted-neighbor tie-break (`bfs.ts` already does this),
+  so a reference implementation computed independently by the harness
+  (`sandbox.ts`'s `referenceBFSOrder`/`referenceDFSOrder`) is a valid
+  oracle, same shape as arrays' sort reference, just for this family.
+  New: `graphTrace.ts`'s `TracedGraph` (mirrors `trace.ts`'s
+  `TracedArray` exactly: `neighbors`/`isVisited`/`visit`/`traverseEdge`),
+  a new specialist agent (`algoreel-agents/agents/algorithm-graph.yaml`,
+  same `algoreel-coder` model and toolless single-shot pattern), and
+  `ensure_algorithm({structure: "graph"})` validated by an exact
+  visit-order match plus a "must call `traverseEdge()`" check — no
+  complexity-class validator needed here, unlike arrays, since an exact
+  order match already implies correct mechanics. Results cache to a
+  separate `generated-graph/` directory (own manifest, same
+  static-import constraint as the array one) so the two shapes'
+  registrations never mix. Scoped deliberately to bfs/dfs by name —
+  Dijkstra, MST, and anything needing edge weights have no such cheap
+  oracle and aren't covered, mechanically enforced before any sandbox
+  run. Verified live: a "dfs" request succeeded on the **first attempt**,
+  twice independently, and `./preview.sh "depth-first search"` picked
+  the generated `dfs` and rendered correctly end to end.
 
 ## Quickstart
 
@@ -534,16 +561,35 @@ the current contents on every push/pop, not a new operation) were both
 added with **zero changes** to `StructureView.tsx` or `layout.ts`. Each
 cost exactly one algorithm file, one registry entry, one demo spec.
 
-General graphs beyond `bfs`, general trees beyond in-order traversal
-(insertion, deletion, other traversal orders), hash tables, and DB/table
-structures remain out of scope.
+General trees beyond in-order traversal (insertion, deletion, other
+traversal orders), hash tables, and DB/table structures remain out of
+scope.
 
-Beyond those six, any array-shaped algorithm (sorting, searching, two
-pointers, ...) can be added without touching this repo by hand — call
-`ensure_algorithm`, described above, which writes and validates one via
-a dedicated local-model agent if it isn't cached yet.
-`algorithms/generated/` holds whatever's been validated and cached so
-far; `list_algorithms`' `generated: true` field tells the agent (and
-you) which entries came from that path versus were hand-written.
-Codegen is still array-only — a generated non-array implementation isn't
-supported yet.
+Beyond those six, `ensure_algorithm` covers two more, generalized
+families without touching this repo by hand:
+
+- `structure: "array"` — any sorting algorithm (searching isn't
+  covered; `binarySearch` is the only search available).
+- `structure: "graph"` — BFS or DFS by name, unweighted (Dijkstra, MST,
+  and anything needing edge weights aren't covered).
+
+Both hand a local model the job of writing the implementation, validated
+against a real oracle before being trusted: arrays check the result
+against `Array.prototype.sort()`; graphs check the exact visit order
+against a real reference BFS/DFS traversal (both are fully deterministic
+given a fixed sorted-neighbor tie-break, the same reason `bfs.ts` already
+sorts its adjacency lists) — no single universal check like "is it
+sorted" exists for structures in general, which is why this stops at
+graph *traversal* rather than covering every structure. `graphTrace.ts`'s
+`TracedGraph` (`neighbors`/`isVisited`/`visit`/`traverseEdge`) mirrors
+`trace.ts`'s `TracedArray` exactly, and a new specialist agent
+(`algoreel-agents/agents/algorithm-graph.yaml`) writes against it, same
+retry-with-real-feedback loop as the array path. Verified live: a "dfs"
+request succeeded on the first attempt, and
+`./preview.sh "depth-first search"` rendered correctly end to end.
+Cached results live in `algorithms/generated/` (array) and
+`algorithms/generated-graph/` (graph) — kept separate so registering one
+shape's cache never has to reason about the other; `list_algorithms`'
+`generated: true` field tells the agent (and you) which entries came from
+either path versus were hand-written. Linked lists, trees, and stacks
+still aren't codegen-covered — those stay hand-written.

@@ -5,6 +5,7 @@ import { binarySearch } from "./binarySearch";
 import { bubbleSort } from "./bubbleSort";
 import { checkBalancedParens } from "./checkBalancedParens";
 import { GENERATED } from "./generated/manifest";
+import { GENERATED_GRAPH } from "./generated-graph/manifest";
 import { inorderTraversal } from "./inorderTraversal";
 import { reverseLinkedList } from "./reverseLinkedList";
 import type { AlgorithmResult } from "./types";
@@ -98,6 +99,9 @@ register({
 for (const [name, { description, run }] of Object.entries(GENERATED)) {
   registerGenerated(name, description, run as AlgorithmEntry["run"]);
 }
+for (const [name, { description, run }] of Object.entries(GENERATED_GRAPH)) {
+  registerGeneratedGraph(name, description, run as AlgorithmEntry["run"]);
+}
 
 // Registers a codegen-produced algorithm (PLAN.md's Phase A) into the
 // live in-memory registry — called both when loading previously-cached
@@ -112,6 +116,25 @@ export function registerGenerated(name: string, description: string, run: Algori
     description,
     inputHint: "{ array: number[] }",
     inputSchema: z.object({ array: z.array(z.number()).min(1) }),
+    generated: true,
+    run,
+  });
+}
+
+// Graph-shaped twin of registerGenerated — the graph codegen path
+// (sandbox.ts's generateAndValidateGraphAlgorithm) only covers bfs/dfs,
+// so the input contract is fixed to the same shape bfs.ts's own
+// hand-written entry already uses.
+export function registerGeneratedGraph(name: string, description: string, run: AlgorithmEntry["run"]): void {
+  register({
+    name,
+    description,
+    inputHint: "{ nodes: string[], edges: [string, string][], start: string }",
+    inputSchema: z.object({
+      nodes: z.array(z.string().min(1)).min(1),
+      edges: z.array(z.tuple([z.string().min(1), z.string().min(1)])),
+      start: z.string().min(1),
+    }),
     generated: true,
     run,
   });

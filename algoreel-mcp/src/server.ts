@@ -208,13 +208,16 @@ server.registerTool(
   "ensure_algorithm",
   {
     description:
-      "Guarantee a sorting algorithm on a number array is available to run, generating and validating it if it isn't already. Call this when a topic doesn't genuinely match anything in list_algorithms, instead of forcing a mismatched existing algorithm into the slot. This tool does NOT run the algorithm on your video's input — call run_algorithm({algorithm: <the returned name>, input}) afterward for that. " +
-      "SORTING ONLY — its correctness check compares the result against the array sorted ascending, which has no meaning for a search or anything else. Do not call this for a search algorithm (binarySearch, from list_algorithms, is the only search available) or any non-array structure (linked list, tree, graph) — be honest that those aren't supported instead of asking for a sort as a stand-in. " +
+      "Guarantee an algorithm is available to run, generating and validating it if it isn't already. Call this when a topic doesn't genuinely match anything in list_algorithms, instead of forcing a mismatched existing algorithm into the slot. This tool does NOT run the algorithm on your video's input — call run_algorithm({algorithm: <the returned name>, input}) afterward for that. " +
+      "Two structures, each with a real correctness check, nothing else covered: " +
+      "structure:\"array\" is SORTING ONLY — its check compares the result against the array sorted ascending, which has no meaning for a search or anything else. Do not call this for a search algorithm (binarySearch, from list_algorithms, is the only search available). " +
+      "structure:\"graph\" is BFS/DFS ONLY (unweighted, by name) — its check compares the visit order against a real reference traversal. Do not call this for Dijkstra, a minimum spanning tree, or anything needing edge weights. " +
+      "Any other structure (linked list, tree, stack) isn't covered by this tool at all — be honest that it's unsupported instead of asking for one of the above as a stand-in. " +
       "Internally this hands the job to a dedicated algorithm-writing agent and retries with real validator feedback on failure (up to 3 attempts), so it can take a while — expect tens of seconds to a few minutes on a genuinely new algorithm, and near-instant if it's already cached.",
     inputSchema: {
       algorithm: z.string().min(1),
       description: z.string().optional(),
-      structure: z.enum(["array"]).optional(),
+      structure: z.enum(["array", "graph"]).optional(),
     },
   },
   async ({ algorithm, description, structure }) => {

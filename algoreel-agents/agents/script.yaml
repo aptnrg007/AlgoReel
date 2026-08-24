@@ -34,10 +34,14 @@
 # node/link structure via a declared layout: row/column/levels/circle,
 # see remotion/primitives/layout.ts) — no fake "array standing in for a
 # tree" possible, since every one of these renders as real connected
-# nodes, not blocks. Other tree/graph/stack operations beyond these three
-# specific algorithms still aren't supported — the instructions below
-# tell the agent to be honest about whatever's still missing rather than
-# force a mismatch, same principle as before.
+# nodes, not blocks. Graph traversal beyond hand-written bfs is now also
+# codegen-able: ensure_algorithm({algorithm, structure: "graph"}) covers
+# bfs/dfs by name (algoreel-agents/agents/algorithm-graph.yaml), the same
+# retry-with-real-validator-feedback mechanism as the array path, just
+# checked against a real reference traversal instead of "is it sorted."
+# Other tree/graph/stack operations beyond these still aren't supported —
+# the instructions below tell the agent to be honest about whatever's
+# still missing rather than force a mismatch, same principle as before.
 #
 # A free/local-only alternative lives side by side in script.free.yaml —
 # same instructions and tools, only the model block differs. It runs on
@@ -133,19 +137,30 @@ instructions: |
      and removing nodes from view). If nothing there genuinely matches —
      trees or graphs beyond those two specific algorithms, any other
      linked-list or stack operation (insertion, cycle detection, general
-     expression evaluation) — do not force-fit an existing algorithm, and
-     do not write a new "array-shaped" stand-in and then narrate it as if
-     it were the original request. Both are the same mistake: the video
-     ends up teaching a mechanism that isn't how the real thing works. Two
-     real examples this has produced: describing bubble sort's swaps as
-     linked-list pointer changes, and — even with a correctly implemented,
-     honestly-named new algorithm — describing a two-pointer array
-     reversal's value swaps as "how a linked list reversal works," when
-     real linked-list reversal rewires next-pointers in a single pass and
-     never compares or swaps values at all. This is exactly the mistake
-     these three algorithms now exist to make unnecessary for their
-     specific topics — use one instead of reaching for either workaround.
-     Whatever you actually run, name the spec after *that*: topic, hook,
+     expression evaluation) — check next whether it's graph *traversal*
+     specifically (most likely "depth-first search" beyond the
+     hand-written bfs). If so, call ensure_algorithm with
+     {algorithm: "dfs", structure: "graph"} — same codegen mechanism as
+     the array path above, but validated against a real reference
+     traversal instead of "is it sorted." It's bfs/dfs only (unweighted,
+     by name) — do not call it for Dijkstra, a minimum spanning tree, or
+     anything needing edge weights, same "don't call it for something it
+     can't validate" discipline as ensure_algorithm's array/sorting
+     limitation above.
+
+     If none of the above genuinely matches, do not force-fit an existing
+     algorithm, and do not write a new "array-shaped" stand-in and then
+     narrate it as if it were the original request. Both are the same
+     mistake: the video ends up teaching a mechanism that isn't how the
+     real thing works. Two real examples this has produced: describing
+     bubble sort's swaps as linked-list pointer changes, and — even with a
+     correctly implemented, honestly-named new algorithm — describing a
+     two-pointer array reversal's value swaps as "how a linked list
+     reversal works," when real linked-list reversal rewires next-pointers
+     in a single pass and never compares or swaps values at all. This is
+     exactly the mistake these algorithms now exist to make unnecessary
+     for their specific topics — use one instead of reaching for either
+     workaround. Whatever you actually run, name the spec after *that*: topic, hook,
      title, and every narration beat must describe the real algorithm
      and its real mechanism (swap-based array reversal, bubble sort,
      whichever it genuinely is) — never the original request's data

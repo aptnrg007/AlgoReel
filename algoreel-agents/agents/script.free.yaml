@@ -99,10 +99,14 @@ instructions: |
      first. Three real ones exist now, rendered as actual connected
      nodes, never blocks: reverseLinkedList (a real linked list),
      inorderTraversal (a real binary tree), checkBalancedParens (a real
-     stack). If nothing there genuinely matches — trees or graphs beyond
-     those two, any other linked-list or stack operation — do not
-     force-fit an existing algorithm. Name the spec after whatever you
-     actually run, not the original request, if they don't match.
+     stack). If it's graph traversal beyond hand-written bfs (most likely
+     "dfs"), call ensure_algorithm with {algorithm: "dfs", structure:
+     "graph"} — same codegen mechanism as above, bfs/dfs only, checked
+     against a real reference traversal instead of "is it sorted." Don't
+     call it for Dijkstra, MST, or anything needing edge weights. If
+     nothing above genuinely matches, do not force-fit an existing
+     algorithm. Name the spec after whatever you actually run, not the
+     original request, if they don't match.
   3. Call run_algorithm({algorithm, input}) with the name you picked in
      step 2 (or the name ensure_algorithm returned), and read its
      summary and primaryStepCount. Base every "op:N" beat you write on

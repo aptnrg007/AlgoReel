@@ -662,10 +662,12 @@ confirmed as the fix for anything specific — observed prompts never
 actually exceeded ~1100 tokens even during the incident — but cheap,
 safe, and removes a variable before it becomes one.
 
-Graph algorithms (DFS, Dijkstra, BST insert, stack/queue) are **not**
-covered by any of this — Phase A and the algorithm agent are both
-array-only. A `TracedGraph` equivalent is a natural follow-up but hasn't
-been built.
+Graph algorithms beyond `bfs` (Dijkstra, BST insert, stack/queue) were
+**not** covered by any of this at the time — Phase A and the algorithm
+agent were both array-only. A `TracedGraph` equivalent was a natural
+follow-up; later in this section covers what was actually built, and why
+graph *traversal* specifically (not graphs in general) is where it
+became tractable.
 
 **Linked lists got a real primitive of their own first** — `LinkedListView`
 (nodes in a row, directed pointer arrows) plus four new `Operation`
@@ -702,12 +704,40 @@ than adding a new operation for it). Adding either cost exactly one
 algorithm file, one registry entry, and one demo spec — the generalization
 this phase set out to prove.
 
-General graphs beyond `bfs`, general trees beyond in-order traversal
-(insertion, deletion, other traversal orders), hash tables, and DB/table
-structures **remain** fully out of scope, as does any codegen path for
-non-array structures — `ensure_algorithm` still rejects any `structure`
-other than `"array"` mechanically, and `script.yaml` is instructed to say
-so honestly for whatever's still missing rather than force a mismatched
+**`ensure_algorithm` then generalized past array-only, to graph
+traversal specifically** — the same "hand-write canonical examples,
+generalize once enough exist" phasing, applied one level up: array
+codegen's whole safety net is one cheap, universal oracle ("does the
+result equal the array sorted ascending?"); no such single check exists
+for structures in general, which is exactly why `bfs`/`reverseLinkedList`
+/`inorderTraversal`/`checkBalancedParens` all stayed hand-written. But
+BFS and DFS are each **fully deterministic** given a fixed neighbor
+tie-break (sorted ascending — `bfs.ts` already did this, for exactly this
+reason), so a reference implementation computed independently by the
+harness (`sandbox.ts`'s `referenceBFSOrder`/`referenceDFSOrder`) is a
+valid oracle, the same shape as arrays' sort reference. `TracedGraph`
+(`graphTrace.ts`) mirrors `TracedArray` exactly — `neighbors`/`isVisited`/
+`visit`/`traverseEdge`, deliberately as minimal — and
+`ensure_algorithm({algorithm, structure: "graph"})` hands the writing job
+to a new specialist (`algoreel-agents/agents/algorithm-graph.yaml`, same
+`algoreel-coder` model), validated by an exact visit-order match against
+the reference plus a "must call `traverseEdge()`" check — no
+complexity-class validator needed here, unlike arrays, since an exact
+order match already implies correct traversal mechanics. Cached to a
+separate `generated-graph/` directory (own manifest, same static-import
+constraint as `generated/manifest.ts`) so its registration never mixes
+with array-generated entries. Verified live: a "dfs" request succeeded
+on the **first attempt**, twice independently, and
+`./preview.sh "depth-first search"` rendered correctly end to end.
+
+General graphs beyond bfs/dfs traversal (Dijkstra, MST, anything needing
+edge weights), general trees beyond in-order traversal (insertion,
+deletion, other traversal orders), hash tables, DB/table structures, and
+codegen for linked lists/trees/stacks all **remain** fully out of scope —
+`ensure_algorithm` mechanically rejects any `structure` other than
+`"array"`/`"graph"`, and any graph name outside the bfs/dfs family,
+before ever running a sandbox. `script.yaml` is instructed to say so
+honestly for whatever's still missing rather than force a mismatched
 algorithm into that slot, the same failure mode this phase already fixed
 once, one level more subtle (an honestly-coded algorithm can still get a
 dishonest narration wrapped around it — also found live and fixed, see
