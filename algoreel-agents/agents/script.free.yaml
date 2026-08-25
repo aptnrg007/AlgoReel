@@ -1,3 +1,10 @@
+# DEPRECATED: superseded by ensureSpec.ts — see script.yaml's DEPRECATED
+# note. This file was the actual source of the "1 success in 5" qwen3
+# result that motivated the whole local-model migration (ensureSpec.ts's
+# own comment cites it directly), which is why it's kept for one release
+# rather than deleted outright — it's the negative result, not dead
+# weight. Nothing still runs it.
+#
 # STATUS: free/local-only variant of script.yaml — same instructions,
 # tools, and approvals (copied, not shared: AgentForge has no YAML
 # include/inherit mechanism, so keep the two files' instructions/tools/

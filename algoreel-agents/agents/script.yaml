@@ -1,3 +1,14 @@
+# DEPRECATED: superseded by algoreel-mcp/src/spec/ensureSpec.ts (invoked
+# via src/cli/makeSpec.ts, which run.sh/preview.sh call directly — nothing
+# shells out to this file anymore). ensureSpec.ts replaced this agent's
+# single-tool-loop "select algorithm, author narration, validate" job with
+# select-algorithm.yaml + narrate.yaml (toolless, single-shot local calls)
+# plus mechanical assembly/repair in TypeScript — see ensureSpec.ts's own
+# top-of-file comment for the full rationale. Kept for one release as a
+# historical record of the STATUS comment below (the concrete numbers this
+# repo's local-model migration was measured against), not because
+# anything still runs it.
+#
 # STATUS: running on Anthropic's claude-sonnet-5 by default, via
 # AgentForge's anthropic provider. Verified live: 3/3 clean runs (two
 # indirect topics, one direct), each completing in exactly 3 tool calls —

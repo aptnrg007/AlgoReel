@@ -1,0 +1,130 @@
+# STATUS: paid/vision variant — see publish.yaml for the local default
+# this stands in for and why it's missing Layer 2 (sample_frames, vision
+# QA: a local model has no vision). Use this file instead of publish.yaml
+# when a real pixel-level pass over check_render's estimates is worth an
+# Anthropic API call per run.
+#
+# Phase 5, upload stubbed. This is the fully automated end-to-end
+# pipeline PLAN.md §9 describes ("./run.sh 'explain BFS' -> you approve
+# one prompt -> video is live") — see run.sh at the repo root. Its
+# check_render/validate_spec/sample_frames steps are copied verbatim from
+# qa.anthropic.yaml (AgentForge has no config-include mechanism — same
+# reason script.free.yaml duplicated script.yaml's instructions before
+# both were superseded by ensureSpec.ts). Keep the two in sync by hand if
+# either changes.
+#
+# Deliberately gates ONLY youtube.upload, unlike qa.yaml which also gates
+# render_preview. qa.yaml is an interactive tool a human actively
+# watches, so gating the render too makes sense there. This agent's whole
+# point is one unattended command with exactly one approval — so
+# check_render/validate_spec/sample_frames/render_final are all
+# auto-approved (all local and reversible, no different in kind from the
+# two that are already unconditionally auto-approved everywhere in this
+# project), and only the upload — external, public, hard to reverse even
+# as a stub standing in for the real thing — requires a decision.
+#
+# youtube.upload is a STUB (algoreel-mcp/src/youtube-server.ts): no
+# Google Cloud OAuth project exists yet (PLAN.md §11), so it validates
+# real YouTube constraints and returns a clearly-marked fake videoId/url
+# instead of calling any real API. Swapping in a real upload later is a
+# change to that one file only — this agent's approval policy already
+# treats it exactly as the real thing would need to be treated.
+#
+# Also silent by design for now: every video is caption-only, no
+# narrated audio (real TTS is the other open decision in PLAN.md §11).
+name: publish-anthropic
+
+model:
+  provider: anthropic
+  name: claude-sonnet-5
+  api_key: ${ANTHROPIC_API_KEY}
+  # No temperature field — claude-sonnet-5 rejects it as a request
+  # parameter (see script.yaml's comment for the exact error).
+
+instructions: |
+  You are given a StorySpec JSON. Your job is to make sure it will render
+  into a watchable video, render the real publishable version, and
+  upload it.
+
+  1. Call check_render on the spec exactly as given.
+  2. If it reports any failures, read each message carefully — it names
+     the concrete problem and the fix (e.g. "array has 40 elements =
+     5658px wide ... use at most 7 elements"). Edit the spec accordingly:
+     shrink an oversized array or graph, rebalance or shorten narration
+     beats so animation steps get real screen time, or adjust
+     targetDurationSec to match what the spec actually produces. Never
+     invent what the algorithm does or how long a real render takes —
+     those are exactly what check_render is telling you.
+  3. Call check_render again on the fixed spec. Repeat steps 2-3 until it
+     reports pass: true. A warning-only result (no errors) already counts
+     as pass: true — you don't need to chase warnings to zero.
+  4. Call validate_spec to confirm the fixed spec is still structurally
+     and semantically valid — check_render only catches layout/pacing
+     problems, not the shape and consistency checks validate_spec already
+     owns.
+  5. Call sample_frames on the check_render-clean, validate_spec-clean
+     spec. Look at each returned image yourself — you can see them
+     directly. For each one, check exactly two things: is any text cut
+     off at the frame's edge, and does any element visibly overlap
+     another. Do not judge whether it looks good, stylish, or polished —
+     only these two structural problems. check_render already caught
+     everything that's checkable without actually looking at a frame.
+  6. If you see real text clipping or element overlap, treat it like a
+     check_render failure: revise the spec (a smaller input, shorter or
+     rebalanced narration) and go back to step 1, then re-run
+     sample_frames on the fixed spec too. But if what you're seeing is
+     the same in every frame regardless of what's in the spec — for
+     example, a caption sitting in the same place no matter the content —
+     that's a property of the fixed video template, not this spec. No
+     spec edit can fix it. Don't loop trying; note it once in your final
+     report and move on.
+  7. Only once check_render, validate_spec, and sample_frames are all
+     clean (aside from any template-level issue noted above), call
+     render_final with the final spec — this is the real, full-quality
+     render, not the fast preview.
+  8. Call youtube.upload with: videoPath from render_final's result;
+     title, description, and tags taken directly from the spec's
+     youtube.title/description/tags fields, unchanged; visibility
+     "unlisted" unless the user's original message explicitly asked for
+     a different visibility. Never default to "public" on an unattended
+     run.
+  9. Report back: the videoId and url youtube.upload returned, its note
+     field verbatim (it will say this was a stub — never imply a real
+     video went live), durationSec and sizeBytes from render_final, a
+     short list of what you changed from the original spec and why (skip
+     this if nothing needed changing), and any template-level visual
+     issue you noticed in step 6 but couldn't fix via the spec.
+
+mcp:
+  - name: algoreel
+    transport: stdio
+    # ${ALGOREEL_MCP_DIR} keeps this config machine-independent — export it
+    # to algoreel-mcp's path before running:
+    #   export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
+    command: ["npx", "tsx", "${ALGOREEL_MCP_DIR}/src/server.ts"]
+  - name: youtube
+    transport: stdio
+    # A deliberately separate server from algoreel's — see the STATUS
+    # comment above and youtube-server.ts itself.
+    command: ["npx", "tsx", "${ALGOREEL_MCP_DIR}/src/youtube-server.ts"]
+
+tools:
+  - "algoreel.check_render"
+  - "algoreel.validate_spec"
+  - "algoreel.sample_frames"
+  - "algoreel.render_final"
+  - "youtube.upload"
+
+approvals:
+  mode: annotated
+  auto_approve:
+    ["algoreel.check_render", "algoreel.validate_spec", "algoreel.sample_frames", "algoreel.render_final"]
+  require: ["youtube.upload"]
+  timeout: 30m
+  on_timeout: deny
+
+limits:
+  max_turns: 20      # a handful of check_render/fix rounds, a
+                      # sample_frames round or two, one validate_spec,
+                      # one render_final, one youtube.upload call
+  max_tokens: 4096

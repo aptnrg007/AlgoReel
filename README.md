@@ -420,6 +420,73 @@ Following the phased plan in `PLAN.md` §9:
   twice independently, and `./preview.sh "depth-first search"` picked
   the generated `dfs` and rendered correctly end to end.
 
+- **Phase 7 — local models by default, no API key required.** Every stage
+  of the pipeline used to need `ANTHROPIC_API_KEY`: `script.yaml` for
+  authoring, `qa.yaml`/`publish.yaml` for QA and publish. Phase 3's own
+  finding was that a local model's real ceiling is *multi-turn
+  tool-calling*, not code or tool discipline generally — the algorithm
+  agent (Phase A) already proved a toolless, single-shot,
+  TypeScript-orchestrated retry loop works reliably where a tool-calling
+  loop didn't. This phase generalizes that pattern instead of chasing a
+  bigger local model.
+
+  New `algoreel-mcp/src/spec/ensureSpec.ts` replaces `script.yaml`
+  entirely: topic selection (`select-algorithm.yaml` — mostly a
+  deterministic keyword match against the live registry, falling back to
+  a toolless constrained-decoding call only for genuinely indirect
+  topics) and narration authoring (`narrate.yaml` — toolless, single-shot,
+  given an exact beat budget computed up front by the new
+  `src/spec/beatBudget.ts` rather than repaired after the fact) both run
+  on local Ollama models by default. Every invariant a local model
+  reliably breaks — `op:N` beat numbering, emphasis words that aren't
+  literal substrings, array width, target duration — is enforced
+  mechanically in TypeScript instead of asked for in a prompt. A new
+  model ladder (`src/agents/ladder.ts`) escalates to `claude-sonnet-5`
+  only if `ANTHROPIC_API_KEY` is actually set *and* the local rung
+  exhausts its retries — never the reverse, never silently.
+
+  `qa.yaml`/`publish.yaml` deliberately kept their tool-calling shape:
+  running `check_render`, fixing what it flags, and rendering is the same
+  mechanical, structured-error-driven loop the algorithm agent's retry
+  loop already showed local models handle fine. Their old Anthropic-only
+  versions moved to `qa.anthropic.yaml`/`publish.anthropic.yaml` as
+  escalation rungs (not yet wired into `run.sh`/`preview.sh` — future
+  work).
+
+  **A second, real reliability bug found and fixed, not assumed away:**
+  even with the tool-calling shape unchanged, `qa.yaml`/`publish.yaml`
+  against `qwen3:8b` measured roughly a 50% rate of returning a
+  completely empty completion on a fresh run — no tool call, no text.
+  Root-caused with a raw `/api/chat` capture: Ollama's `done_reason` was a
+  clean `"stop"` and token usage was far under the budget, so it was never
+  a truncation. `qwen3:8b` was narrating its entire plan into Ollama's
+  separate `thinking` channel and then simply stopping without ever
+  emitting the tool call it had just described — raising `max_tokens`
+  cannot fix a model that isn't running out of budget. Fixed at the
+  AgentForge level: a new `model.think: false` config field
+  (`internal/config/schema.go`) sends Ollama's top-level `think` request
+  field, turning the channel off entirely. Measured before/after against
+  the same agent and prompt: roughly 1 failure in 2 runs with thinking
+  on, **0 failures in 18 consecutive runs** with `think: false`.
+
+  Also done: AgentForge gained a real `model.num_ctx` field (same
+  pattern), retiring the two derived Ollama Modelfiles this repo used to
+  need purely to raise the context window; a deterministic
+  `caption-overlaps-structure` check (`remotion/primitives/textBox.ts`)
+  closed the one real gap in `check_render`'s coverage; and
+  `script.yaml`/`script.free.yaml` were marked deprecated in place rather
+  than deleted, since nothing still runs them.
+
+  Verified live with `.env` moved aside and every relevant key unset:
+  `./preview.sh "explain selection sort"` and
+  `./run.sh "explain bubble sort"` both completed cleanly end to end —
+  topic → generated+cached algorithm → validated spec → rendered/
+  published video — with zero calls to any paid provider. **Honest gap:**
+  this proves the local pipeline is *reliable*, not that its narration
+  matches `claude-sonnet-5`'s quality — that bar stays open, and the
+  ladder exists so escalating on quality (not just on failure) is a
+  future config change, not an architecture change.
+
 ## Quickstart
 
 ```
@@ -443,61 +510,51 @@ npx tsx src/server.ts
 ```
 
 Drive it through AgentForge — from the `AgentForge` repo, with Ollama
-running locally and the `algoreel-llama` model built from
-`algoreel-agents/Modelfile` (or see `animate.yaml`'s comments to switch
-to Anthropic instead):
+running locally (plain `qwen3:8b`, no derived model needed — `num_ctx`
+and `think` are set directly in `animate.yaml`'s `model:` block; see its
+comments to switch to Anthropic instead):
 
 ```
-ollama create algoreel-llama -f /path/to/AlgoReel/algoreel-agents/Modelfile
 export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
 ./agentforge chat /path/to/AlgoReel/algoreel-agents/agents/animate.yaml
 ```
 
-Turn a bare topic into a validated StorySpec — `script.yaml` defaults to
-Anthropic's `claude-sonnet-5` (get a key at
-https://console.anthropic.com/settings/keys):
+**As of Phase 7, none of this needs an API key by default.** Turning a
+bare topic into a validated StorySpec is a TypeScript call
+(`src/spec/ensureSpec.ts`, via the `makeSpec.ts` CLI), not an agent
+you invoke directly — it drives local, toolless model calls itself
+(`select-algorithm.yaml`, `narrate.yaml`) and only escalates to
+Anthropic's `claude-sonnet-5` if `ANTHROPIC_API_KEY` is set in the
+environment and the local rung exhausts its retries:
 
 ```
 export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
-export ANTHROPIC_API_KEY=...
-./agentforge run /path/to/AlgoReel/algoreel-agents/agents/script.yaml \
-  -m "explain breadth-first search"
-```
-
-To avoid a paid API key, use **`script.free.yaml`** instead — same agent,
-running on Google AI Studio's free-tier Gemini via AgentForge's native
-`gemini` provider (get a key at https://aistudio.google.com/apikey) or
-fully local qwen3 via Ollama. See that file's STATUS comment and the
-Phase 3 status bullet above for the real tradeoffs before relying on it:
-
-```
-export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
-export GOOGLE_API_KEY=...
-./agentforge run /path/to/AlgoReel/algoreel-agents/agents/script.free.yaml \
-  -m "explain breadth-first search"
+npx tsx algoreel-mcp/src/cli/makeSpec.ts "explain breadth-first search" > spec.json
 ```
 
 Check a StorySpec for layout/pacing problems and render it once it's
-clean — **`qa.yaml`** takes a StorySpec directly (paste the JSON as the
-message), fixes anything `check_render` or `sample_frames` flags, then
-renders. Like `animate.yaml`, `render_preview` needs a separate approval.
-Note: unlike `check_render` (free), `sample_frames` sends real images to
-Anthropic on every call — a few hundred vision tokens per frame, several
-frames per call:
+clean — **`qa.yaml`** takes a StorySpec directly (a bare JSON blob alone
+confuses the local model into an empty completion — prefix a one-line
+instruction, same as `preview.sh` does below) and, on local `qwen3:8b` by
+default, fixes anything `check_render` flags, then renders.
+`render_preview` needs a separate approval, same principle as
+`animate.yaml`. Use **`qa.anthropic.yaml`** instead for an added
+`sample_frames` vision pass over real pixels (costs an Anthropic API call
+per QA round — see that file's STATUS comment):
 
 ```
 export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
-export ANTHROPIC_API_KEY=...
+{ echo "Here is the StorySpec JSON to check and render:"; echo; cat spec.json; } > msg.txt
 ./agentforge run /path/to/AlgoReel/algoreel-agents/agents/qa.yaml \
-  -m "$(cat some-spec.json)" --output-format json
+  -m "@msg.txt" --output-format json
 # then, once it reports state: awaiting_approval:
 ./agentforge runs approve <run-id> <call-id>
 ```
 
 Just want to see a topic turn into a video, no YouTube step anywhere in
-the flow — **`preview.sh`** chains `script.yaml` into `qa.yaml`, pausing
+the flow — **`preview.sh`** chains `makeSpec.ts` into `qa.yaml`, pausing
 for exactly one approval (`render_preview`). It never even starts
-`youtube-server.ts`:
+`youtube-server.ts`, and needs no API key by default:
 
 ```
 export AGENTFORGE_BIN=/path/to/AgentForge/agentforge   # if not on PATH
@@ -506,12 +563,13 @@ export AGENTFORGE_BIN=/path/to/AgentForge/agentforge   # if not on PATH
 ```
 
 Go all the way from a bare topic to a "published" video in one command —
-**`run.sh`** chains `script.yaml` into `publish.yaml`, pausing for
+**`run.sh`** chains `makeSpec.ts` into `publish.yaml`, pausing for
 exactly one approval (the upload). `agentforge` needs to be findable —
-either on `PATH`, or point `AGENTFORGE_BIN` at the binary. The upload
-itself is currently a stub (no YouTube OAuth credentials configured —
-see the Phase 5 status above), so this produces a real rendered mp4 and
-a clearly-fake `videoId`/`url`, not an actual live video yet:
+either on `PATH`, or point `AGENTFORGE_BIN` at the binary. No API key
+needed by default. The upload itself is currently a stub (no YouTube
+OAuth credentials configured — see the Phase 5 status above), so this
+produces a real rendered mp4 and a clearly-fake `videoId`/`url`, not an
+actual live video yet:
 
 ```
 export AGENTFORGE_BIN=/path/to/AgentForge/agentforge   # if not on PATH
@@ -520,7 +578,10 @@ export AGENTFORGE_BIN=/path/to/AgentForge/agentforge   # if not on PATH
 ```
 
 Both scripts accept `AUTO_APPROVE=1` to skip the interactive prompt, for
-an unattended run.
+an unattended run. Both also source a `.env` at the repo root if one
+exists — set `ANTHROPIC_API_KEY` there to enable escalation on a topic
+the local path can't handle; leave it unset (or don't create `.env` at
+all) to stay fully local.
 
 ## Algorithms
 
