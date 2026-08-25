@@ -22,10 +22,12 @@
 # process writing into generated-graph/ behind the calling process's
 # back, with no locking to make that safe.
 #
-# Model: same algoreel-coder (qwen2.5-coder:14b via Ollama) algorithm.yaml
-# uses — a dedicated code model doing a pure code-writing task, same
-# num_ctx headroom (Modelfile.coder) for the same reason: retry prompts
-# embed the previous attempt's full code plus a real validator error.
+# Model: same qwen2.5-coder:14b via Ollama algorithm.yaml uses — a
+# dedicated code model doing a pure code-writing task, same num_ctx
+# headroom (set directly in model.num_ctx below, no derived model
+# needed — see algorithm.yaml's comment) for the same reason: retry
+# prompts embed the previous attempt's full code plus a real validator
+# error.
 #
 # Not yet run live against a real bfs/dfs request — see PLAN.md for
 # whatever's been verified since this file was written.
@@ -33,7 +35,8 @@ name: algorithm-graph
 
 model:
   provider: ollama
-  name: algoreel-coder
+  name: qwen2.5-coder:14b
+  num_ctx: 16384
   temperature: 0.2
 
 instructions: |

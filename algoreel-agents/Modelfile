@@ -1,3 +1,14 @@
+# DEPRECATED: no agent references algoreel-llama anymore. AgentForge's
+# ModelConfig gained a real model.num_ctx field (internal/config/
+# schema.go), so every agent that needed this Modelfile now sets num_ctx
+# directly in its own YAML against the plain qwen3:8b base model instead
+# (see animate.yaml). Kept one release for anyone who built
+# algoreel-llama by hand and might still have it referenced somewhere
+# locally; safe to delete after that.
+#
+# Original rationale, still accurate for why qwen3:8b (not num_ctx) is
+# the right model for tool-calling agents:
+#
 # qwen3:8b is the only local model tried that gets both requirements
 # right at once: it reliably emits real, structured tool_calls (unlike
 # qwen2.5-coder, which never wraps calls in the <tool_call> tags its own

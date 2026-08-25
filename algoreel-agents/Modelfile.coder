@@ -1,3 +1,12 @@
+# DEPRECATED: no agent references algoreel-coder anymore.
+# algorithm.yaml/algorithm-graph.yaml set model.num_ctx: 16384 directly
+# against plain qwen2.5-coder:14b now that AgentForge's ModelConfig has a
+# real num_ctx field (internal/config/schema.go) — no derived model or
+# manual `ollama create` step needed. Kept one release for anyone who
+# built algoreel-coder by hand; safe to delete after that.
+#
+# Original rationale for the model/num_ctx choice, still accurate:
+#
 # The algorithm agent's model (algoreel-agents/agents/algorithm.yaml).
 # Bumped past Ollama's 4096-token runtime default for the same reason
 # algoreel-llama's Modelfile bumps qwen3's: ensureAlgorithm.ts's retry
