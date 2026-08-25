@@ -1,0 +1,34 @@
+# STATUS: paid escalation rung for ensureSpec.ts's narration-authoring
+# step — see narrate.yaml for the local rung this stands in for, and its
+# comment for why this is the one call in the pipeline where escalation
+# actually matters (everything else is deterministic or classification).
+# ensureSpec.ts's narrateRungs() only reaches this file once the local
+# rung has exhausted its own attempts, and only when ANTHROPIC_API_KEY is
+# actually set — see select-algorithm.anthropic.yaml's comment for why
+# this has to be a separate file rather than a fallback block in
+# narrate.yaml (AgentForge resolves ${VAR} at config load time and
+# hard-errors if it's unset).
+name: narrate-anthropic
+
+model:
+  provider: anthropic
+  name: claude-sonnet-5
+  api_key: ${ANTHROPIC_API_KEY}
+  # No temperature field — claude-sonnet-5 rejects it as a request
+  # parameter (see script.yaml's comment for the exact error).
+
+instructions: |
+  You write narration for a short DSA explainer video. You're given the
+  real algorithm, its real input, and exactly what happens when it runs —
+  never invent a detail beyond what's given. Answer only the JSON object
+  the schema requires — plain text, no markdown formatting (no **bold**,
+  no backticks), no prose outside the JSON, no markdown fences.
+
+output:
+  schema: ./schemas/narration-draft.json
+  on_invalid: retry
+  max_retries: 2
+
+limits:
+  max_turns: 1
+  max_tokens: 1536

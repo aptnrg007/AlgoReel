@@ -1,0 +1,32 @@
+# STATUS: paid escalation rung for ensureSpec.ts's algorithm-selection
+# step — see select-algorithm.yaml for the local rung this stands in for.
+# ensureSpec.ts's selectionRungs() only reaches this file once the local
+# rung has exhausted its own attempts, and only when ANTHROPIC_API_KEY is
+# actually set in the environment — never speculatively. AgentForge
+# resolves ${ANTHROPIC_API_KEY} at config LOAD time and hard-errors if
+# it's unset (internal/config/env.go), which is exactly why this can't be
+# a commented-out block inside select-algorithm.yaml the way an earlier
+# script.free.yaml-style variant would have done it: a local-default
+# agent must never reference an env var that might not exist.
+name: select-algorithm-anthropic
+
+model:
+  provider: anthropic
+  name: claude-sonnet-5
+  api_key: ${ANTHROPIC_API_KEY}
+  # No temperature field — claude-sonnet-5 rejects it as a request
+  # parameter (see script.yaml's comment for the exact error).
+
+instructions: |
+  You pick which known algorithm best fits a video topic, or name a new
+  one to be generated if nothing fits. Answer only the JSON object the
+  schema requires — no prose, no markdown fences.
+
+output:
+  schema: ./schemas/algorithm-choice.json
+  on_invalid: retry
+  max_retries: 2
+
+limits:
+  max_turns: 1
+  max_tokens: 512

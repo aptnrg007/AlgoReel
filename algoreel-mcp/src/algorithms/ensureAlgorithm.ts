@@ -1,9 +1,7 @@
-import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { runAgent, RunAgentError, stripFence } from "../agents/runAgent";
 import { getAlgorithmByNormalizedName, normalizeAlgorithmName } from "./index";
 import { generateAndValidateAlgorithm, generateAndValidateGraphAlgorithm, GenerateAlgorithmError } from "./sandbox";
 
@@ -38,7 +36,6 @@ import { generateAndValidateAlgorithm, generateAndValidateGraphAlgorithm, Genera
 const MCP_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ALGORITHM_AGENT_PATH = join(MCP_ROOT, "..", "algoreel-agents", "agents", "algorithm.yaml");
 const ALGORITHM_GRAPH_AGENT_PATH = join(MCP_ROOT, "..", "algoreel-agents", "agents", "algorithm-graph.yaml");
-const AGENTFORGE_BIN = process.env.AGENTFORGE_BIN || "agentforge";
 const MAX_ATTEMPTS = 3;
 
 // A fixed sample, not whatever input the eventual video will use —
@@ -96,82 +93,16 @@ function buildPrompt(algorithm: string, description: string | undefined, previou
   );
 }
 
-// Strips a single ```ts / ```typescript / ``` fence if the model wrapped
-// its answer in one — same tolerance preview.sh already applies to
-// script.yaml's JSON answers, since small models reliably do this even
-// when told not to.
-function stripFence(text: string): string {
-  return text
-    .trim()
-    .replace(/^```(?:ts|typescript|js|javascript)?\s*/, "")
-    .replace(/```\s*$/, "")
-    .trim();
-}
-
+// Thin wrapper over the shared runAgent (src/agents/runAgent.ts, originally
+// lifted from this exact function) that translates its RunAgentError into
+// this module's own EnsureAlgorithmError, so every caller below still only
+// has to catch one error type.
 async function runAlgorithmAgent(prompt: string, agentPath: string): Promise<string> {
-  const work = mkdtempSync(join(tmpdir(), "algoreel-algo-"));
   try {
-    const promptPath = join(work, "prompt.txt");
-    const outputPath = join(work, "result.json");
-    const dbPath = join(work, "agentforge.db");
-    writeFileSync(promptPath, prompt);
-
-    await new Promise<void>((resolve, reject) => {
-      // stdio: stdout/stderr both piped and ignored, never inherited —
-      // this process is itself an MCP stdio server whose stdout IS the
-      // JSON-RPC channel; letting a child's progress output land on it
-      // would corrupt the session. --output-format json routes
-      // AgentForge's own progress lines to stderr and writes the run
-      // envelope to outputPath instead, so nothing needs stdout at all.
-      // A dedicated --db keeps this from sharing (and lock-contending
-      // on) ~/.agentforge/agentforge.db with any concurrent run.
-      const child = spawn(
-        AGENTFORGE_BIN,
-        ["run", agentPath, "-m", `@${promptPath}`, "--output-format", "json", "--output", outputPath, "--db", dbPath],
-        { stdio: ["ignore", "pipe", "pipe"] },
-      );
-      let stderr = "";
-      child.stderr.on("data", (d) => (stderr += d));
-      child.on("error", (err) => reject(new EnsureAlgorithmError(`failed to start algorithm agent: ${err.message}`)));
-      child.on("close", (code) => {
-        if (code !== 0) {
-          reject(new EnsureAlgorithmError(`algorithm agent exited with code ${code}: ${stderr.slice(-2000) || "(no stderr)"}`));
-          return;
-        }
-        resolve();
-      });
-    });
-
-    let raw: string;
-    try {
-      raw = readFileSync(outputPath, "utf8");
-    } catch {
-      throw new EnsureAlgorithmError("algorithm agent produced no output file");
-    }
-    if (!raw.trim()) {
-      throw new EnsureAlgorithmError("algorithm agent run was cancelled (empty output)");
-    }
-
-    let envelope: { state: string; output?: string; error?: string };
-    try {
-      envelope = JSON.parse(raw);
-    } catch {
-      throw new EnsureAlgorithmError(`algorithm agent produced unparseable output: ${raw.slice(0, 500)}`);
-    }
-
-    // awaiting_approval can't happen for a toolless agent, but the state
-    // must be checked regardless — AgentForge exits 0 for it too, and a
-    // script that only checks the exit code would treat a stalled run as
-    // success.
-    if (envelope.state !== "completed") {
-      throw new EnsureAlgorithmError(`algorithm agent run did not complete (state: ${envelope.state}): ${envelope.error || "no error message"}`);
-    }
-    if (!envelope.output) {
-      throw new EnsureAlgorithmError("algorithm agent completed with no output");
-    }
-    return stripFence(envelope.output);
-  } finally {
-    rmSync(work, { recursive: true, force: true });
+    return stripFence(await runAgent(prompt, agentPath));
+  } catch (err) {
+    if (err instanceof RunAgentError) throw new EnsureAlgorithmError(err.message);
+    throw err;
   }
 }
 
