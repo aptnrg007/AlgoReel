@@ -12,8 +12,9 @@
 # algorithm.yaml already documents for its own toolless design: (1) this
 # is a single "read prompt, pick a name" completion, not a conversation,
 # which is what this project's local-model testing already found a small
-# model can do reliably (unlike multi-round tool-call self-correction —
-# see script.free.yaml's STATUS comment); (2) giving it algoreel's MCP
+# model can do reliably (unlike multi-round tool-call self-correction,
+# which the old, now-deleted script.free.yaml measured at a best-case 1
+# success in 5 direct-topic trials); (2) giving it algoreel's MCP
 # server would spawn a second server process for no reason, since
 # ensureSpec.ts already calls run_algorithm/ensure_algorithm directly as
 # TypeScript, not through this agent.
@@ -22,9 +23,10 @@
 # toolless: AgentForge's Ollama provider only sends `format` (real
 # grammar-constrained decoding, not just prompt-and-hope) when no tools
 # are registered on the request (internal/provider/ollama.go's
-# ollamaFormat) — script.yaml's own STATUS comment records output.schema
-# breaking tool-call discipline on qwen3, but that failure mode doesn't
-# exist for an agent with no tools to skip. Verified live against
+# ollamaFormat) — the old, now-deleted script.yaml found output.schema
+# broke tool-call discipline on qwen3 when combined with real tools, but
+# that failure mode doesn't exist for an agent with no tools to skip.
+# Verified live against
 # qwen3:8b with algorithm-choice.json before wiring this up: 100% valid
 # shape, correct pick on an indirect topic with no algorithm named in the
 # prompt ("find something in an already-alphabetized phone book" ->

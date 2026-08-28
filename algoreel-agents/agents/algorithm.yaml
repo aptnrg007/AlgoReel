@@ -22,12 +22,12 @@
 #    tree (confirmed by reading it) to make that safe.
 #
 # Model: qwen2.5-coder:14b via Ollama, fully local, no API key, zero
-# marginal cost per retry. This is the same model script.yaml's
-# Modelfile rejected for the *unrelated* reason that it doesn't reliably
-# wrap tool calls in the <tool_call> tags AgentForge/Ollama's template
-# requires — a disqualification that's entirely about tool calling,
-# which this agent never does. It's a dedicated code model doing a pure
-# code-writing task instead.
+# marginal cost per retry. This is the same model animate.yaml's own
+# model-choice comment rejected for the *unrelated* reason that it
+# doesn't reliably wrap tool calls in the <tool_call> tags AgentForge/
+# Ollama's template requires — a disqualification that's entirely about
+# tool calling, which this agent never does. It's a dedicated code model
+# doing a pure code-writing task instead.
 #
 # num_ctx raised past Ollama's 4096 default via the model.num_ctx field
 # below — this agent's retry prompts embed the previous attempt's full
@@ -59,7 +59,7 @@ model:
   name: qwen2.5-coder:14b
   num_ctx: 16384
   temperature: 0.2
-  # qwen3:8b (see script-select.yaml / narrate.yaml) is this project's
+  # qwen3:8b (see select-algorithm.yaml / narrate.yaml) is this project's
   # other proven local model, tool-calling and all — swap to it if
   # qwen2.5-coder's code quality disappoints:
   # provider: ollama

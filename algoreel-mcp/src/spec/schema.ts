@@ -65,7 +65,9 @@ export type StorySpecParsed = z.infer<typeof storySpecSchema>;
 // grammar-constrained decoding — see internal/provider/ollama.go's
 // ollamaFormat, which only withholds native `format` when tools are
 // registered). Regenerated into algoreel-agents/agents/schemas/ by
-// scripts/generate-story-spec-schema.ts, same as storySpecSchema above.
+// scripts/generate-story-spec-schema.ts — storySpecSchema above used to
+// be regenerated there too, until its only consumers (script.yaml/
+// script.free.yaml's commented-out output.schema lines) were deleted.
 
 // select-algorithm.yaml's output. Deliberately generic (no registry-derived
 // enum on `algorithm`) so this schema stays static and committed rather

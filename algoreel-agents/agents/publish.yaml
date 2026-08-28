@@ -18,6 +18,11 @@
 # then emits neither a tool call nor any content, a clean done_reason
 # "stop" that raising max_tokens can't fix). Also verified directly
 # against this agent's own longer prompt and extra youtube.upload tool.
+#
+# Its own check_render/validate_spec/render_final steps are copied
+# verbatim from publish.anthropic.yaml (which documents copying them from
+# qa.anthropic.yaml in turn) — same "no config-include mechanism" reason.
+# Keep the two in sync by hand if either changes.
 name: publish
 
 model:

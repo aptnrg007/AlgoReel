@@ -15,7 +15,8 @@ model:
   name: claude-sonnet-5
   api_key: ${ANTHROPIC_API_KEY}
   # No temperature field — claude-sonnet-5 rejects it as a request
-  # parameter (see script.yaml's comment for the exact error).
+  # parameter (confirmed via a live 400: "`temperature` is deprecated
+  # for this model").
 
 instructions: |
   You pick which known algorithm best fits a video topic, or name a new

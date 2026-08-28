@@ -9,12 +9,18 @@
 // changes. Do not hand-edit the output files.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { z } from "zod";
-import { algorithmChoiceSchema, narrationDraftSchema, storySpecSchema } from "../src/spec/schema";
+import { algorithmChoiceSchema, narrationDraftSchema } from "../src/spec/schema";
 
 const outDir = new URL("../../algoreel-agents/agents/schemas", import.meta.url);
 
+// story-spec.json (from src/spec/schema.ts's storySpecSchema, still very
+// much alive — it backs validateSpec/validate.ts) used to be generated
+// here too, but its only consumers were script.yaml/script.free.yaml's
+// commented-out output.schema lines — both agents deprecated in place and
+// then deleted once ensureSpec.ts fully replaced them, with no live agent
+// ever actually pointing output.schema at this file. Removed rather than
+// regenerated indefinitely for nothing to read it.
 const files: Array<[string, z.ZodTypeAny]> = [
-  ["story-spec.json", storySpecSchema],
   ["algorithm-choice.json", algorithmChoiceSchema],
   ["narration-draft.json", narrationDraftSchema],
 ];

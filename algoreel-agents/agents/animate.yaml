@@ -1,3 +1,10 @@
+# STATUS: interactive-only entry point — the original demo/manual workflow
+# (`agentforge chat agents/animate.yaml`, see README.md), driven by a human
+# typing a topic and watching every tool call. Not wired into `run.sh`/
+# `preview.sh` (those drive `ensureSpec.ts` + `publish.yaml`/`qa.yaml`
+# directly) and not called from any TypeScript — kept as the simplest
+# possible tool-calling agent to point someone at when they want to see the
+# tools work interactively, one call at a time.
 name: animate
 
 model:
@@ -24,7 +31,7 @@ model:
   # the Modelfile are both gone — this points at plain `qwen3:8b`.
   #
   # Three weaker local models were tried and rejected first, each on a
-  # different axis — see the Modelfile for the full writeup:
+  # different axis:
   # - qwen2.5-coder: never wraps tool calls in the <tool_call> tags its
   #   own template requires, so AgentForge/Ollama parses them as plain
   #   text instead of real tool_calls.
@@ -38,10 +45,7 @@ model:
   #   does (namespaced as "<server>.<tool>", non-configurable).
   # qwen3 is the first one to get both requirements right at once.
   # Verified against raw /api/chat in every case, not an AlgoReel or
-  # AgentForge bug. To use Anthropic instead:
-  # provider: anthropic
-  # name: claude-sonnet-5
-  # api_key: ${ANTHROPIC_API_KEY}
+  # AgentForge bug.
 
 instructions: |
   You turn a request for a DSA explainer video into a rendered preview, by
@@ -72,8 +76,7 @@ instructions: |
      primaryStepCount "op:N" beats — every beat needs at least one
      animation step behind it, or it renders a caption over a frozen
      array. Fewer beats than primaryStepCount is fine (a beat can cover
-     several steps); more is
-     always wrong.
+     several steps); more is always wrong.
   5. call validate_spec on it. Fix every error it reports — it catches
      things you can't tell just by looking at the JSON (an unsorted array,
      a gap in your op:N beats, an emphasis word that isn't in any caption).

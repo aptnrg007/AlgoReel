@@ -16,9 +16,11 @@
 # - opTexts is a plain ordered array of strings, not [{beat, text}] —
 #   the model never writes beat *labels* at all, so "op:N numbered
 #   consecutively from 0" (validate.ts's semanticErrors — one of the
-#   invariants local models break most, per script.free.yaml's STATUS
-#   comment) is structurally impossible to get wrong. ensureSpec.ts zips
-#   opTexts[i] to "op:i" mechanically.
+#   invariants local models break most when left to a multi-round
+#   tool-calling loop instead of a single-shot fill-in-the-blanks job —
+#   the failure mode the old, now-deleted script.free.yaml measured at a
+#   best-case 1 success in 5) is structurally impossible to get wrong.
+#   ensureSpec.ts zips opTexts[i] to "op:i" mechanically.
 # - The exact word budget per beat (min/max) is computed before this
 #   call, from beatBudget.ts's real checkpoint math — a beat that's too
 #   short to hold its animation steps (checkRender.ts's

@@ -5,10 +5,10 @@
 # project's local-model testing already found reliable (animate.yaml runs
 # the same kind of tool-calling shape — list_algorithms -> run_algorithm
 # -> validate_spec [retries] -> render_preview — on the same model). The
-# creative, open-ended authoring that actually broke qwen3 (script.yaml's
-# job, 1 success in 5 per script.free.yaml's STATUS comment) never
-# happens here: this agent edits a spec against structured error
-# messages, it doesn't write one from scratch.
+# creative, open-ended authoring that actually broke qwen3 (the old,
+# now-deleted script.yaml's job — measured at a best-case 1 success in 5
+# direct-topic trials) never happens here: this agent edits a spec
+# against structured error messages, it doesn't write one from scratch.
 #
 # check_render's coverage is stronger than it used to be specifically
 # because Layer 2 is missing here: src/spec/checkRender.ts now includes
@@ -18,6 +18,11 @@
 # estimated, not measured, so it's a warning, not an error (see that
 # file's comment), but it's real signal a purely local pipeline wouldn't
 # otherwise have at all.
+#
+# Its own instruction steps are copied verbatim from qa.anthropic.yaml
+# (same reason publish.anthropic.yaml's STATUS comment gives for its own
+# copy from this file's family: AgentForge has no config-include
+# mechanism). Keep the two in sync by hand if either changes.
 #
 # Use qa.anthropic.yaml instead of this file for the extra sample_frames
 # pass over what check_render already estimates — real pixels, not an
