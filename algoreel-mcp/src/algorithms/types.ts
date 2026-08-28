@@ -77,6 +77,24 @@ export type Operation =
 // declares which one it needs via "struct"'s layout field.
 export type LayoutKind = "row" | "column" | "levels" | "circle";
 
+// The conceptual shape a structure-based algorithm is built on — one
+// level more abstract than LayoutKind. Today the mapping to a LayoutKind
+// (remotion/primitives/layout.ts's inferLayout) is exactly 1:1 (a chain
+// is always drawn as a row, a tree as levels, ...), so this type may look
+// redundant with LayoutKind by itself. The reason it exists separately:
+// every algorithm file used to hardcode a LayoutKind literal directly at
+// its "struct" call site, meaning "what layout does a linked list use"
+// was a decision made independently, by hand, every time a new algorithm
+// needed one — a bfs.ts author choosing "circle" for a graph is an
+// arbitrary aesthetic pick, not a derived fact, unless something ties the
+// two together. Naming the shape and deriving the layout from it (rather
+// than asserting the layout directly) means a future structure family
+// (e.g. a codegen'd TracedTree/TracedStack) only ever has to say what
+// kind of thing it built, not which of the four LayoutKind values that
+// happens to render as — closing the "layout is still caller-chosen, not
+// inferred from what the algorithm actually does" gap.
+export type StructureShape = "chain" | "tree" | "graph" | "stack";
+
 export interface AlgorithmResult {
   operations: Operation[];
   summary: string;

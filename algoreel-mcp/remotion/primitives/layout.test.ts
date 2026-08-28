@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { STRUCT } from "../template/tokens";
-import { computeLayout, type StructLink, type StructNode } from "./layout";
+import { computeLayout, inferLayout, type StructLink, type StructNode } from "./layout";
 
 function nodes(ids: string[]): StructNode[] {
   return ids.map((id) => ({ id, value: id }));
@@ -95,4 +95,15 @@ test("empty node list produces a zero-size layout for every kind, not a crash", 
     assert.equal(result.width, 0);
     assert.deepEqual(result.positions, {});
   }
+});
+
+// inferLayout is the one place a StructureShape becomes a LayoutKind
+// (types.ts's StructureShape doc-comment) — every algorithm file that
+// used to hardcode a LayoutKind literal at its "struct" call site now
+// calls this instead, so the mapping only needs to be right in one place.
+test("inferLayout maps each structure shape to its one correct layout", () => {
+  assert.equal(inferLayout("chain"), "row");
+  assert.equal(inferLayout("tree"), "levels");
+  assert.equal(inferLayout("graph"), "circle");
+  assert.equal(inferLayout("stack"), "column");
 });

@@ -1,3 +1,4 @@
+import { inferLayout } from "../../remotion/primitives/layout";
 import type { Operation } from "./types";
 
 // The instrumentation boundary for generated graph-traversal algorithms
@@ -35,7 +36,7 @@ export function createTracedGraph(
   start: string,
 ): { trace: TracedGraph; operations: Operation[] } {
   const operations: Operation[] = [
-    { type: "struct", layout: "circle", nodes: nodes.map((id) => ({ id, value: id })), edges: [...edges] },
+    { type: "struct", layout: inferLayout("graph"), nodes: nodes.map((id) => ({ id, value: id })), edges: [...edges] },
   ];
 
   const adjacency = new Map<string, string[]>();

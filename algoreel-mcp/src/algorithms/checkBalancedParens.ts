@@ -1,3 +1,4 @@
+import { inferLayout } from "../../remotion/primitives/layout";
 import type { AlgorithmResult, Operation } from "./types";
 
 export interface CheckBalancedParensInput {
@@ -35,7 +36,7 @@ export function checkBalancedParens({ expression }: CheckBalancedParensInput): A
     if ("([{".includes(ch)) {
       const node = { id: `n${idCounter++}`, value: ch };
       stack.push(node);
-      operations.push({ type: "struct", layout: "column", nodes: [...stack] });
+      operations.push({ type: "struct", layout: inferLayout("stack"), nodes: [...stack] });
       // "focus" is the step boundary (src/spec/beats.ts) — one primary
       // step per character processed.
       operations.push({ type: "nodeState", nodes: [node.id], state: "focus" });
@@ -56,7 +57,7 @@ export function checkBalancedParens({ expression }: CheckBalancedParensInput): A
       // Every earlier pop still removes its node immediately; only the
       // very last one lingers.
       if (stack.length > 0) {
-        operations.push({ type: "struct", layout: "column", nodes: [...stack] });
+        operations.push({ type: "struct", layout: inferLayout("stack"), nodes: [...stack] });
       } else {
         operations.push({ type: "nodeState", nodes: [top.id], state: "done" });
       }

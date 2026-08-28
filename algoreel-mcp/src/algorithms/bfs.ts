@@ -1,3 +1,4 @@
+import { inferLayout } from "../../remotion/primitives/layout";
 import type { AlgorithmResult, Operation } from "./types";
 
 export interface BFSInput {
@@ -34,7 +35,7 @@ export function bfs({ nodes, edges, start }: BFSInput): AlgorithmResult {
   for (const list of adjacency.values()) list.sort();
 
   const operations: Operation[] = [
-    { type: "struct", layout: "circle", nodes: nodes.map((id) => ({ id, value: id })), edges: [...edges] },
+    { type: "struct", layout: inferLayout("graph"), nodes: nodes.map((id) => ({ id, value: id })), edges: [...edges] },
   ];
   const visited = new Set<string>([start]);
   const queue: string[] = [start];

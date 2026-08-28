@@ -1,3 +1,4 @@
+import { inferLayout } from "../../remotion/primitives/layout";
 import type { AlgorithmResult, Operation } from "./types";
 
 export interface InorderTraversalInput {
@@ -28,7 +29,7 @@ export function inorderTraversal({ tree }: InorderTraversalInput): AlgorithmResu
   const ids = tree.map((_, i) => `n${i}`);
   const nodes = tree.map((value, i) => ({ id: ids[i]!, value }));
 
-  const operations: Operation[] = [{ type: "struct", layout: "levels", nodes }];
+  const operations: Operation[] = [{ type: "struct", layout: inferLayout("tree"), nodes }];
   for (let i = 0; i < tree.length; i++) {
     const leftIndex = 2 * i + 1;
     const rightIndex = 2 * i + 2;

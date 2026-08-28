@@ -1,5 +1,27 @@
-import type { LayoutKind } from "../../src/algorithms/types";
+import type { LayoutKind, StructureShape } from "../../src/algorithms/types";
 import { STRUCT } from "../template/tokens";
+
+// The single place a StructureShape becomes a LayoutKind. An algorithm
+// declares the conceptual shape it built (types.ts's StructureShape
+// doc-comment); this is the one deterministic lookup deciding what that
+// renders as, so no call site ever asserts a LayoutKind literal by hand
+// again. Exhaustively checked the same way computeLayout's own switch is.
+export function inferLayout(shape: StructureShape): LayoutKind {
+  switch (shape) {
+    case "chain":
+      return "row";
+    case "tree":
+      return "levels";
+    case "graph":
+      return "circle";
+    case "stack":
+      return "column";
+    default: {
+      const _exhaustive: never = shape;
+      return _exhaustive;
+    }
+  }
+}
 
 // Pure — no React, no Remotion imports — so checkRender.ts (which runs
 // before the ~30-60s render, PLAN.md §7) can call the exact same code

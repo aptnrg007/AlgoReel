@@ -1,3 +1,4 @@
+import { inferLayout } from "../../remotion/primitives/layout";
 import type { AlgorithmResult, Operation } from "./types";
 
 export interface ReverseLinkedListInput {
@@ -26,7 +27,7 @@ export function reverseLinkedList({ list }: ReverseLinkedListInput): AlgorithmRe
   const nextOf = new Map<string, string | null>();
   ids.forEach((id, i) => nextOf.set(id, ids[i + 1] ?? null));
 
-  const operations: Operation[] = [{ type: "struct", layout: "row", nodes }];
+  const operations: Operation[] = [{ type: "struct", layout: inferLayout("chain"), nodes }];
   // "struct" only declares the nodes, not their links (a directed
   // structure's shape isn't known up front the way a graph's fixed edge
   // set is) — so the initial forward chain has to be built explicitly,
