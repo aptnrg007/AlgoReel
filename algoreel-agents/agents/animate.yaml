@@ -2,16 +2,26 @@ name: animate
 
 model:
   provider: ollama
-  name: algoreel-llama
+  name: qwen3:8b
+  num_ctx: 24576
   temperature: 0.3
-  # algoreel-llama = qwen3:8b with num_ctx raised to 24576 via
-  # ../Modelfile (Ollama defaults to 4096; qwen3 also emits a verbose
-  # thinking trace before every tool call, which eats context fast
-  # across a multi-turn StorySpec workflow — AgentForge's Ollama
-  # provider has no way to set num_ctx itself, internal/provider/
-  # ollama.go only sends temperature/num_predict, so the bump has to be
-  # baked into the model). Rebuild after editing the Modelfile:
-  #   ollama create algoreel-llama -f algoreel-agents/Modelfile
+  think: false
+  # think: false turns off qwen3's thinking channel entirely. Measured
+  # live (see qa.yaml/publish.yaml's STATUS comments for the full
+  # writeup): with thinking on and tools registered, qwen3:8b sometimes
+  # narrates its whole plan into the thinking channel and then emits
+  # neither a tool call nor any content — Ollama reports this as a clean
+  # done_reason "stop", so it isn't a max_tokens problem, and the model
+  # never recovers within that turn. think: false removes the channel the
+  # failure happens in.
+  #
+  # num_ctx raised to 24576 (Ollama defaults to 4096) — qwen3 emits a
+  # verbose thinking trace before every tool call, which eats context
+  # fast across a multi-turn StorySpec workflow. Used to require a
+  # derived model (`ollama create algoreel-llama -f
+  # algoreel-agents/Modelfile`) purely to set this option; AgentForge's
+  # ModelConfig gained a real num_ctx field, so that derived model and
+  # the Modelfile are both gone — this points at plain `qwen3:8b`.
   #
   # Three weaker local models were tried and rejected first, each on a
   # different axis — see the Modelfile for the full writeup:

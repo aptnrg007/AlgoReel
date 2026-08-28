@@ -96,6 +96,72 @@ test("n=5 array is clean — no width failures at all", () => {
   assert.equal(result.pass, true);
 });
 
+// caption-overlaps-structure is a WARNING, not an error (its check-side
+// comment explains why: the wrapped-line estimate isn't a real
+// measurement) — so every case below must leave result.pass true even
+// when the code fires, unlike struct-nodes-overlap/struct-too-large above.
+test("caption-overlaps-structure fires for a deliberately verbose caption over a tall circle graph", () => {
+  const nodes = Array.from({ length: 7 }, (_, i) => `n${i}`);
+  const edges: [string, string][] = nodes.slice(1).map((n, i) => [nodes[i]!, n]);
+  const spec: StorySpec = withMatchedDuration({
+    version: 1,
+    topic: "t",
+    targetDurationSec: 30,
+    hook: "h",
+    narration: [
+      { beat: "intro", text: longText(3) },
+      { beat: "op:0", text: longText(60) },
+      { beat: "outro", text: longText(5) },
+    ],
+    emphasis: [],
+    complexity: COMPLEXITY,
+    youtube: YOUTUBE,
+    algorithm: "bfs",
+    input: { nodes, edges, start: nodes[0]! },
+  });
+  const result = checkRender(spec);
+  assert.ok(codesOf(result).includes("caption-overlaps-structure"));
+  const failure = result.failures.find((f) => f.code === "caption-overlaps-structure")!;
+  assert.equal(failure.severity, "warning");
+  assert.equal(result.pass, true, "a warning-only failure must never flip pass to false");
+});
+
+test("caption-overlaps-structure does not fire for a short caption over the same circle graph", () => {
+  const nodes = Array.from({ length: 7 }, (_, i) => `n${i}`);
+  const edges: [string, string][] = nodes.slice(1).map((n, i) => [nodes[i]!, n]);
+  const spec: StorySpec = withMatchedDuration({
+    version: 1,
+    topic: "t",
+    targetDurationSec: 30,
+    hook: "h",
+    narration: [
+      { beat: "intro", text: longText(3) },
+      { beat: "op:0", text: longText(5) },
+      { beat: "outro", text: longText(5) },
+    ],
+    emphasis: [],
+    complexity: COMPLEXITY,
+    youtube: YOUTUBE,
+    algorithm: "bfs",
+    input: { nodes, edges, start: nodes[0]! },
+  });
+  const result = checkRender(spec);
+  assert.ok(!codesOf(result).includes("caption-overlaps-structure"));
+});
+
+// Real, committed evidence, not just a synthetic case: bfs-demo.json's real
+// narration (~20-word captions) over its real 7-node circle graph sample_
+// frames-confirmed clean live, but tight — exactly the "warning, not error"
+// case this check exists for. Pins the calibration in textBox.ts's
+// AVG_CHAR_WIDTH_EM against a real spec, not just synthetic longText().
+test("bfs-demo.json's real caption/circle-graph pairing warns (tight) but still passes", () => {
+  const raw = readFileSync(join(import.meta.dirname, "../../specs/bfs-demo.json"), "utf8");
+  const spec = JSON.parse(raw) as StorySpec;
+  const result = checkRender(spec);
+  assert.ok(codesOf(result).includes("caption-overlaps-structure"));
+  assert.equal(result.pass, true);
+});
+
 test("struct-nodes-overlap fires for a 25-node graph on the fixed layout circle", () => {
   const nodes = Array.from({ length: 25 }, (_, i) => `n${i}`);
   const edges: [string, string][] = nodes.slice(1).map((n, i) => [nodes[i]!, n]);

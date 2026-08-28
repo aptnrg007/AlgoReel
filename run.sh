@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # PLAN.md §9 Phase 5's exit criterion: `./run.sh "explain BFS"` -> you
-# approve one prompt -> video is live. (Currently "live" means a stub
-# YouTube response — see algoreel-mcp/src/youtube-server.ts and
-# PLAN.md §11; nothing here changes once real credentials land.)
+# approve one prompt -> video is live, with no API key required by
+# default. (Currently "live" means a stub YouTube response — see
+# algoreel-mcp/src/youtube-server.ts and PLAN.md §11; nothing here
+# changes once real credentials land.)
 #
-# Chains script.yaml (topic -> StorySpec) into publish.yaml (StorySpec ->
-# QA'd, rendered, uploaded video). publish.yaml auto-approves every step
-# except youtube.upload, so this script only ever has to handle one
-# approval decision, no matter how many check_render/sample_frames
-# rounds the agent needed internally.
+# Chains makeSpec.ts (topic -> StorySpec, via ensureSpec.ts — local Ollama
+# models by default, escalating to claude-sonnet-5 only if
+# ANTHROPIC_API_KEY is set and the local rung exhausts its attempts) into
+# publish.yaml (StorySpec -> QA'd, rendered, uploaded video, also local by
+# default — see publish.yaml's STATUS comment). publish.yaml auto-approves
+# every step except youtube.upload, so this script only ever has to handle
+# one approval decision, no matter how many check_render rounds the agent
+# needed internally.
 #
 # Set AUTO_APPROVE=1 to skip the interactive prompt (unattended runs, or
 # scripted verification) — it still goes through the same approve/deny
@@ -41,34 +45,8 @@ TOPIC="$1"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# --- extractor helpers (Node, not jq — jq isn't assumed installed, and
-# Node is already a hard dependency of this whole project) ---
-
-# Reads an `agentforge run --output-format json` result file and prints
-# its .output field, stripping an optional ```json ... ``` fence (Claude
-# wraps script.yaml's answer in one about half the time — see
-# script.yaml's comments). Exits non-zero with a clear message if the
-# run didn't complete or the output isn't valid JSON.
-extract_spec() {
-  node -e '
-    const fs = require("fs");
-    const run = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    if (run.state !== "completed") {
-      console.error(`script.yaml run did not complete (state: ${run.state}): ${run.error || "no error message"}`);
-      process.exit(1);
-    }
-    let out = (run.output || "").trim();
-    out = out.replace(/^```(?:json)?\s*/, "").replace(/```\s*$/, "").trim();
-    try {
-      JSON.parse(out); // validate before handing it to the next agent
-    } catch (e) {
-      console.error("script.yaml did not return valid JSON:", e.message);
-      console.error(out.slice(0, 500));
-      process.exit(1);
-    }
-    process.stdout.write(out);
-  ' "$1"
-}
+# --- helpers (Node, not jq — jq isn't assumed installed, and Node is
+# already a hard dependency of this whole project) ---
 
 # Prints a short human-readable summary of every pending tool call in a
 # run result (there should only ever be one: youtube.upload), one per
@@ -83,15 +61,43 @@ list_pending() {
   ' "$1"
 }
 
+# See preview.sh's matching function for the full rationale: qwen3:8b
+# measurably returns an empty completion (state "completed", zero tool
+# calls, no text) on roughly 1 in 4 publish.yaml runs, always on the first
+# model turn — a bare re-roll fixed it every time it was tried live, so
+# this retries locally before ever considering escalation.
+run_agent_retrying_empty() {
+  local agent_path="$1" message_file="$2" output_path="$3"
+  local attempt state tool_calls has_output
+  for attempt in 1 2 3; do
+    "$AGENTFORGE_BIN" run "$agent_path" -m "@$message_file" --output-format json --output "$output_path"
+    state="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).state)' "$output_path")"
+    tool_calls="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).tool_calls_count ?? 0)' "$output_path")"
+    has_output="$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log(r.output !== undefined && r.output !== null && r.output !== "" ? "1" : "0")' "$output_path")"
+    if [ "$state" = "completed" ] && [ "$tool_calls" = "0" ] && [ "$has_output" = "0" ]; then
+      echo "    (attempt $attempt: local model returned an empty completion — retrying)" >&2
+      continue
+    fi
+    return 0
+  done
+  echo "    (all 3 attempts returned an empty completion — giving up, see the raw result below)" >&2
+}
+
 echo "==> Writing a script for: $TOPIC"
-"$AGENTFORGE_BIN" run "$SCRIPT_DIR/algoreel-agents/agents/script.yaml" \
-  -m "$TOPIC" --output-format json --output "$WORK/script.json"
-extract_spec "$WORK/script.json" > "$WORK/spec.json"
+npx tsx "$SCRIPT_DIR/algoreel-mcp/src/cli/makeSpec.ts" "$TOPIC" > "$WORK/spec.json"
 echo "    spec ready: $(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).topic)' "$WORK/spec.json")"
 
+# See preview.sh's matching comment: a bare JSON blob with no instruction
+# sentence attached measurably makes publish.yaml's local model return an
+# empty completion instead of calling check_render.
+{
+  echo "Here is the StorySpec JSON to check, render, and publish:"
+  echo
+  cat "$WORK/spec.json"
+} > "$WORK/spec-message.txt"
+
 echo "==> Running QA and publishing"
-"$AGENTFORGE_BIN" run "$SCRIPT_DIR/algoreel-agents/agents/publish.yaml" \
-  -m "@$WORK/spec.json" --output-format json --output "$WORK/publish.json"
+run_agent_retrying_empty "$SCRIPT_DIR/algoreel-agents/agents/publish.yaml" "$WORK/spec-message.txt" "$WORK/publish.json"
 
 STATE="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).state)' "$WORK/publish.json")"
 

@@ -2,49 +2,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "version": {
-      "type": "number",
-      "const": 1
-    },
-    "topic": {
-      "type": "string",
-      "minLength": 1
-    },
-    "targetDurationSec": {
-      "type": "number",
-      "exclusiveMinimum": 0
-    },
     "hook": {
       "type": "string",
       "minLength": 1
     },
-    "narration": {
+    "opTexts": {
       "minItems": 1,
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "beat": {
-            "type": "string",
-            "pattern": "^(intro|outro|op:\\d+)$"
-          },
-          "text": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "required": [
-          "beat",
-          "text"
-        ],
-        "additionalProperties": false
+        "type": "string",
+        "minLength": 1
       }
     },
-    "emphasis": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
+    "outroText": {
+      "type": "string",
+      "minLength": 1
     },
     "complexity": {
       "type": "object",
@@ -91,30 +63,14 @@
         "tags"
       ],
       "additionalProperties": false
-    },
-    "algorithm": {
-      "type": "string",
-      "minLength": 1
-    },
-    "input": {
-      "type": "object",
-      "propertyNames": {
-        "type": "string"
-      },
-      "additionalProperties": {}
     }
   },
   "required": [
-    "version",
-    "topic",
-    "targetDurationSec",
     "hook",
-    "narration",
-    "emphasis",
+    "opTexts",
+    "outroText",
     "complexity",
-    "youtube",
-    "algorithm",
-    "input"
+    "youtube"
   ],
   "additionalProperties": false
 }

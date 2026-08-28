@@ -29,14 +29,16 @@
 # which this agent never does. It's a dedicated code model doing a pure
 # code-writing task instead.
 #
-# Runs as `algoreel-coder`, not plain `qwen2.5-coder:14b` — a derived
-# model (Modelfile.coder, `ollama create algoreel-coder -f
-# Modelfile.coder`) with num_ctx raised past Ollama's 4096 default,
-# mirroring algoreel-llama's own Modelfile and for the same category of
-# reason: this agent's retry prompts embed the previous attempt's full
+# num_ctx raised past Ollama's 4096 default via the model.num_ctx field
+# below — this agent's retry prompts embed the previous attempt's full
 # code plus a real validator error, and a caller-supplied description can
 # itself be long (found live: a full pseudocode spec, hundreds of words,
-# passed to help this model with quicksort specifically).
+# passed to help this model with quicksort specifically). Used to require
+# a derived model (Modelfile.coder, `ollama create algoreel-coder -f
+# Modelfile.coder`) purely to set this one option; AgentForge's
+# ModelConfig gained a real num_ctx field (internal/config/schema.go),
+# so that manual `ollama create` step and Modelfile.coder are both gone —
+# this points at plain `qwen2.5-coder:14b` directly.
 #
 # Honest result on quicksort, after that live finding: still fails,
 # cleanly, in 2 different ways across repeated tries — first a fixed-
@@ -54,13 +56,15 @@ name: algorithm
 
 model:
   provider: ollama
-  name: algoreel-coder
+  name: qwen2.5-coder:14b
+  num_ctx: 16384
   temperature: 0.2
-  # algoreel-llama (qwen3:8b, see ../Modelfile) is this project's other
-  # proven local model, tool-calling and all — swap to it if
+  # qwen3:8b (see script-select.yaml / narrate.yaml) is this project's
+  # other proven local model, tool-calling and all — swap to it if
   # qwen2.5-coder's code quality disappoints:
   # provider: ollama
-  # name: algoreel-llama
+  # name: qwen3:8b
+  # num_ctx: 24576
 
 instructions: |
   You are an algorithm implementation specialist. Your only job: given an

@@ -513,6 +513,81 @@ of stdin, leaving stdin free for the actual prompt.
 
 *Exit:* a topic chosen by the agent, based on real data, that you didn't suggest.
 
+### Phase 7 — Local models by default
+`script.yaml`/`qa.yaml`/`publish.yaml` all needed `ANTHROPIC_API_KEY` and a
+paid model. Phase 3's own finding was that a local model's real ceiling is
+*multi-turn tool-calling*, not code or tool discipline in general — the
+algorithm agent (§10) already proved a toolless, single-shot, TypeScript-
+orchestrated retry loop works reliably on local models where a tool-calling
+loop didn't. This phase generalizes that pattern to the rest of the pipeline
+instead of chasing a bigger local model.
+
+**Done.** `algoreel-mcp/src/spec/ensureSpec.ts` replaces `script.yaml`
+entirely: topic selection (`select-algorithm.yaml`, mostly a deterministic
+keyword match against the live registry, falling back to a toolless
+constrained-decoding call only for indirect topics) and narration authoring
+(`narrate.yaml`, toolless, single-shot, given an exact beat budget computed
+up front by `src/spec/beatBudget.ts` rather than repaired after the fact) are
+both local by default, with every invariant a local model reliably breaks —
+`op:N` beat numbering, emphasis-as-substring, array width, target duration —
+enforced mechanically in TypeScript instead of asked for in a prompt. A
+model ladder (`src/agents/ladder.ts`) escalates to `claude-sonnet-5` only if
+`ANTHROPIC_API_KEY` is set in the environment *and* the local rung exhausts
+its retries — never the other way around, and never silently.
+
+`qa.yaml`/`publish.yaml` stayed tool-calling (their job — running
+`check_render`, fixing what it flags, rendering — is exactly the mechanical,
+structured-error-driven loop the algorithm agent's own retry loop already
+showed local models handle fine; the failure mode Phase 3 measured was
+open-ended *authoring* under a tool loop, not this). Their old Anthropic-only
+versions moved to `qa.anthropic.yaml`/`publish.anthropic.yaml` as escalation
+rungs (unused today — nothing calls them yet; wiring `run.sh`/`preview.sh`'s
+ladder through to them is future work, not done in this phase).
+
+**A second, real reliability bug found and fixed along the way, not assumed
+away:** even with the tool-calling shape unchanged, `qa.yaml`/`publish.yaml`
+against `qwen3:8b` had a measured ~50% rate of returning a completely empty
+completion — no tool call, no text — on a fresh run. Root-caused live via a
+raw `/api/chat` capture: Ollama's `done_reason` was a clean `"stop"`, and
+`eval_count` was far under `max_tokens`, so it was never a truncation.
+`qwen3:8b` was narrating its entire plan into Ollama's separate `thinking`
+channel ("call check_render, then validate_spec, then...") and then simply
+stopping without ever emitting the tool call it had just described. Raising
+`max_tokens` cannot fix this — the model wasn't running out of budget, it
+was ending the turn on its own. The fix was AgentForge-level: a new
+`model.think: false` config field (`internal/config/schema.go`, threaded
+through the same path `num_ctx` uses) that sends Ollama's top-level `think`
+request field, turning the channel off entirely. Measured before/after
+against the same agent and prompt: roughly 1 failure in 2 runs with thinking
+on, 0 failures in 18 consecutive runs (10 `publish.yaml`, 8 `qa.yaml`) with
+`think: false`. `run.sh`/`preview.sh`'s bash-level `run_agent_retrying_empty`
+retry is kept as a second line of defense, not the fix itself.
+
+Also done in this phase: AgentForge gained a real `model.num_ctx` config
+field (same file/pattern as `think`), retiring the two derived Ollama
+Modelfiles this repo used to need purely to raise the context window; a
+deterministic `caption-overlaps-structure` check
+(`remotion/primitives/textBox.ts`) closed the one real gap in `checkRender`'s
+coverage (a long caption wraps upward and can crowd a tall structure — the
+template wraps text, it doesn't clip it, so "is text cut off" was mostly the
+wrong question); and `script.yaml`/`script.free.yaml` were marked deprecated
+in place (kept one release as the historical record of the "1 success in 5"
+qwen3 result that motivated this whole phase) rather than deleted, since
+nothing still runs them.
+
+*Exit:* `./run.sh`/`./preview.sh` with no `.env` at all → a real rendered
+video, no API key required by default. **Met** — verified live with `.env`
+moved aside and every relevant env var unset: `preview.sh "explain selection
+sort"` and `run.sh "explain bubble sort"` both completed cleanly end to end
+(topic → generated+cached algorithm → validated spec → rendered/published
+video), zero model calls made to any paid provider.
+
+**Honest gap:** this proves the local pipeline is *reliable*, not that its
+narration is as good as `claude-sonnet-5`'s. That bar (valid vs. worth
+watching) was flagged as open when this phase started and remains open — the
+ladder exists so escalating on quality, not just on failure, is a future
+config change, not an architecture change.
+
 ---
 
 ## 10. Algorithm order
@@ -752,8 +827,9 @@ Avoid early: quicksort (recursion + partitioning is two hard things), anything D
 - **TTS provider.** ElevenLabs (quality, cost) vs OpenAI TTS (cheap, adequate) vs local Piper (free, robotic). Try Piper first — if it sounds acceptable at Shorts pace, the whole pipeline stays local and free.
 - **Channel identity.** The repo is AlgoReel; the YouTube channel doesn't have to be. Faceless channel? Consistent intro sound? Decide before video #1, not video #10.
 - **Repo split.** `algoreel-mcp` and `algoreel-agents` could be one repo. Probably should be, until they aren't.
-- **A roster of further specialist agents.** The algorithm agent (§10) is the first split-out specialist; a QA agent, a narration agent, and a publish-decision agent were all raised as the same pattern applied further. Deliberately not pursued yet — the algorithm agent needed to actually work first, and it did, but on evidence (see §10's insertion-sort finding) that a free local model's reliability is genuinely topic-dependent, not a given. Worth revisiting per-agent, not as a blanket architecture change, once there's a concrete pain point each one would fix.
-- **A stronger fallback when the algorithm agent's local model can't do it.** Right now 3 failed attempts is a hard stop — no escalation to a paid model. Whether that's worth adding depends on how often it actually happens in practice, not on the one topic (insertion sort) that's failed so far.
+- **A roster of further specialist agents.** The algorithm agent (§10) was the first split-out specialist; Phase 7 added narration/selection (`narrate.yaml`/`select-algorithm.yaml`) as two more, on the same toolless-single-shot pattern. `qa.yaml`/`publish.yaml` stayed tool-calling by design (§9 Phase 7) rather than being split further, since that shape was never what failed.
+- **A stronger fallback when the algorithm agent's local model can't do it.** Still open, and now inconsistent with the rest of the pipeline: `ensureSpec.ts`'s selection/narration steps escalate to `claude-sonnet-5` via `src/agents/ladder.ts` when `ANTHROPIC_API_KEY` is set and the local rung exhausts its retries, but `ensureAlgorithm.ts`'s codegen retry loop still has no such escalation — 3 failed attempts is a hard stop regardless of whether a key is present. `ladder.ts` was written generically enough to cover this (it isn't `ensureAlgorithm`-specific), so wiring it in is a small, scoped follow-up, not a redesign.
+- **`qa.anthropic.yaml`/`publish.anthropic.yaml` are unwired.** They exist as escalation-capable variants of the local `qa.yaml`/`publish.yaml` (Phase 7) but nothing calls them yet — `run.sh`/`preview.sh` only ever run the local versions. Wiring them behind the same present-key-and-local-exhausted ladder condition `ensureSpec.ts` uses is the natural next step, not yet done.
 
 ---
 

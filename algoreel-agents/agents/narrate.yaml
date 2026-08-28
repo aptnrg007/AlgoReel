@@ -1,0 +1,62 @@
+# STATUS: local rung of ensureSpec.ts's narration-authoring step
+# (algoreel-mcp/src/spec/ensureSpec.ts) — the part of the old script.yaml
+# that's genuinely open-ended (the rest — algorithm selection, input,
+# op:N numbering, emphasis, targetDurationSec — is now either
+# deterministic or lives in select-algorithm.yaml).
+#
+# This is the one call in the whole local pipeline that's actually
+# subjective, so it's the one place a paid escalation rung
+# (narrate.anthropic.yaml) exists for real — see ensureSpec.ts's
+# narrateRungs(). Everything else about this file is designed to make a
+# local model's job as narrow as possible so escalation is rarely needed:
+#
+# - Toolless, single-shot, same two reasons algorithm.yaml already
+#   documents (no multi-round self-correction to hold; no second MCP
+#   server racing the caller).
+# - opTexts is a plain ordered array of strings, not [{beat, text}] —
+#   the model never writes beat *labels* at all, so "op:N numbered
+#   consecutively from 0" (validate.ts's semanticErrors — one of the
+#   invariants local models break most, per script.free.yaml's STATUS
+#   comment) is structurally impossible to get wrong. ensureSpec.ts zips
+#   opTexts[i] to "op:i" mechanically.
+# - The exact word budget per beat (min/max) is computed before this
+#   call, from beatBudget.ts's real checkpoint math — a beat that's too
+#   short to hold its animation steps (checkRender.ts's
+#   invisible-checkpoints) is prevented by construction, not caught after
+#   the fact.
+# - emphasis, targetDurationSec, version/topic/algorithm/input are never
+#   asked for — all set mechanically in ensureSpec.ts's assembleSpec.
+#
+# output.schema is safe here for the same reason select-algorithm.yaml's
+# comment gives: toolless means AgentForge's Ollama provider sends real
+# grammar-constrained decoding (internal/provider/ollama.go's
+# ollamaFormat only withholds `format` when tools are registered).
+# Verified live against qwen3:8b with narration-draft.json: 100% valid
+# shape, exactly the requested opTexts count, narration that correctly
+# describes the real input/steps given in the prompt (not invented) —
+# though it did wrap phrases in **markdown bold**, which
+# sanitizeText.ts's sanitizeNarrationText strips mechanically rather than
+# relying on a prompt instruction a small model won't reliably follow.
+name: narrate
+
+model:
+  provider: ollama
+  name: qwen3:8b
+  num_ctx: 24576
+  temperature: 0.4
+
+instructions: |
+  You write narration for a short DSA explainer video. You're given the
+  real algorithm, its real input, and exactly what happens when it runs —
+  never invent a detail beyond what's given. Answer only the JSON object
+  the schema requires — plain text, no markdown formatting (no **bold**,
+  no backticks), no prose outside the JSON, no markdown fences.
+
+output:
+  schema: ./schemas/narration-draft.json
+  on_invalid: retry
+  max_retries: 2
+
+limits:
+  max_turns: 1
+  max_tokens: 1536

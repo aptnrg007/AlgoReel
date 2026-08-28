@@ -1,9 +1,21 @@
 import { buildTimeline, type Timeline } from "../../remotion/buildTimeline";
 import { computeLayout } from "../../remotion/primitives/layout";
 import type { VisualState } from "../../remotion/primitives/state";
-import { CELL, FRAME, SAFE_AREA, STRUCT } from "../../remotion/template/tokens";
+import { estimateTextBoxHeight } from "../../remotion/primitives/textBox";
+import { CELL, FRAME, SAFE_AREA, STRUCT, TYPE_SCALE } from "../../remotion/template/tokens";
 import { inputShape } from "./inputShape";
 import type { StorySpec } from "./types";
+
+// Caption.tsx's own lineHeight (1.3) and font weight (600) — duplicated as
+// a literal here rather than imported, since Caption.tsx doesn't export
+// its style constants; if that file's lineHeight ever changes, this needs
+// to change with it (same drift risk tokens.ts's own STRUCT constants
+// already accept for their "carried over unchanged" numbers).
+const CAPTION_LINE_HEIGHT = 1.3;
+// Below this many px of headroom, a structure/caption pairing is worth a
+// warning even though the estimate says it's (barely) still clean —
+// mirrors array-near-edge's "technically fine but tight" philosophy above.
+const CAPTION_GAP_WARN_PX = 60;
 
 export interface Check {
   severity: "error" | "warning";
@@ -108,7 +120,11 @@ function arrayWidthChecks(n: number): Check[] {
   return [];
 }
 
-function maxArrayLength(): number {
+// Exported so a spec author (src/spec/beatBudget.ts, ensureSpec.ts) can pick
+// an input that's guaranteed clean here rather than authoring freely and
+// finding out from a failure message — one definition either way, since this
+// is also exactly what arrayWidthChecks above compares n against.
+export function maxArrayLength(): number {
   return Math.floor((FRAME.width + CELL.gap) / (CELL.size + CELL.gap));
 }
 
@@ -122,12 +138,31 @@ function maxArrayLength(): number {
 // node spacing found across the whole run. Strictly more coverage than
 // the two checks it replaces: this also catches a too-deep tree, which
 // neither one could (both only ever looked at the initial node count).
+// Structure vertical center in the actual rendered frame — Video.tsx mounts
+// StateView inside its own <AbsoluteFill style={{alignItems:"center",
+// justifyContent:"center"}}>, itself a direct absolutely-positioned child of
+// Frame's own AbsoluteFill. Per CSS, an absolutely positioned element's
+// inset offsets resolve against its containing block's padding box, not a
+// padding-reduced content box — confirmed by Caption.tsx's own comment,
+// which independently rediscovered this positioning it a bare bottom:60
+// deep inside SAFE_AREA.bottom's zone (the exact bug this constant's
+// derivation avoids repeating in reverse). So the structure centers on the
+// *full* frame height, not the SAFE_AREA-reduced one.
+const STRUCT_CENTER_Y = FRAME.height / 2;
+// Caption's own anchor (remotion/template/Caption.tsx: bottom:
+// SAFE_AREA.bottom on the same kind of absolutely-positioned box) — its
+// bottom edge is fixed here and it grows upward as it wraps.
+const CAPTION_BOTTOM_Y = FRAME.height - SAFE_AREA.bottom;
+// Caption.tsx: left:60, right:60 on a FRAME.width-wide box.
+const CAPTION_BOX_WIDTH = FRAME.width - 60 - 60;
+
 function structGeometryChecks(timeline: Timeline): Check[] {
   const failures: Check[] = [];
   const maxHeight = FRAME.height - SAFE_AREA.top - SAFE_AREA.bottom;
 
   let worstOverflow: { width: number; height: number; layout: string; n: number } | null = null;
   let tightest: { spacing: number; size: number; layout: string; n: number } | null = null;
+  let worstCaptionGap: { gap: number; layout: string; n: number } | null = null;
 
   for (const step of timeline.steps) {
     for (const cp of step.checkpoints) {
@@ -152,6 +187,23 @@ function structGeometryChecks(timeline: Timeline): Check[] {
           }
         }
       }
+
+      // Vertical overlap between the structure and this beat's caption —
+      // see estimateTextBoxHeight's own comment for how the wrapped-line
+      // estimate was calibrated. Only structures tall enough to matter
+      // (row/column/levels are all short; circle's the one that gets close)
+      // ever come near CAPTION_BOTTOM_Y, so this is a no-op for most specs.
+      const structBottomY = STRUCT_CENTER_Y + height / 2;
+      const captionHeight = estimateTextBoxHeight(step.text, {
+        maxWidthPx: CAPTION_BOX_WIDTH,
+        fontSizePx: TYPE_SCALE.caption,
+        lineHeight: CAPTION_LINE_HEIGHT,
+      });
+      const captionTopY = CAPTION_BOTTOM_Y - captionHeight;
+      const gap = captionTopY - structBottomY;
+      if (gap < CAPTION_GAP_WARN_PX && (!worstCaptionGap || gap < worstCaptionGap.gap)) {
+        worstCaptionGap = { gap, layout: structLayout, n: structNodes.length };
+      }
     }
   }
 
@@ -174,6 +226,26 @@ function structGeometryChecks(timeline: Timeline): Check[] {
         `a "${tightest.layout}"-layout structure with ${tightest.n} nodes puts two nodes ${tightest.spacing.toFixed(0)}px ` +
         `apart on the fixed layout — less than the ${tightest.size}px node size, so they overlap. ` +
         `Use fewer nodes or a shallower structure.`,
+    });
+  }
+  if (worstCaptionGap) {
+    // Estimated, not measured (no real font metrics available outside a
+    // browser — see textBox.ts's comment), so this stays a warning even
+    // when the estimate says the gap is negative: an approximate check
+    // shouldn't be the thing that fails a render, only something worth a
+    // human or agent's attention. Promote to "error" only after this has
+    // run against real renders long enough to trust the margin (PLAN.md's
+    // own discipline against false-positive machines — see this file's
+    // header comment on the checks deliberately not implemented).
+    const verb = worstCaptionGap.gap < 0 ? "overlaps" : "comes within";
+    const amount = Math.abs(worstCaptionGap.gap).toFixed(0);
+    failures.push({
+      severity: "warning",
+      code: "caption-overlaps-structure",
+      message:
+        `a "${worstCaptionGap.layout}"-layout structure with ${worstCaptionGap.n} nodes ${verb} an estimated ` +
+        `${amount}px ${worstCaptionGap.gap < 0 ? "past" : "of"} its beat's caption text (estimated, not measured — ` +
+        `see textBox.ts) — consider a shorter caption or fewer/shallower nodes for this beat.`,
     });
   }
 

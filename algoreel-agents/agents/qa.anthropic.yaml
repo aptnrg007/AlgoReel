@@ -1,0 +1,114 @@
+# STATUS: paid/vision variant — see qa.yaml for the local default this
+# stands in for and why it's missing Layer 2 (sample_frames, vision QA:
+# a local model has no vision). Use this file instead of qa.yaml when a
+# real pixel-level pass over check_render's estimates is worth an
+# Anthropic API call per QA round.
+#
+# Phase 4, both layers live (PLAN.md §7). Layer 1 (check_render) is a
+# pure function of the spec — every finding comes from the spec plus the
+# same deterministic timeline math the renderer itself uses, so a bad
+# spec is caught and fixed *before* paying for a render, not after; it
+# takes the spec directly, not a rendered video path, unlike the
+# render_preview-driven check PLAN.md §5 originally sketched.
+#
+# Layer 2 (sample_frames) needed a real fix in AgentForge first: its MCP
+# client used to stringify image content into raw base64 JSON text
+# instead of a real image content block, so a screenshot reached the
+# model as ~90K tokens of unreadable noise. Fixed via AgentForge's
+# ExecuteRich/BlockImage/ToolResultParts (internal/mcp, internal/message,
+# internal/provider/anthropic.go) — verified live before wiring this up.
+#
+# A caption/safe-area template bug found during this phase (captions at a
+# fixed bottom:60px, inside the 280px band SAFE_AREA reserves for
+# YouTube's UI overlay) has since been fixed in Caption.tsx — see
+# PLAN.md §7. The instructions below still tell the agent not to loop
+# trying to fix a template-constant issue by editing the spec, since a
+# different one could turn up the same way.
+name: qa-anthropic
+
+model:
+  provider: anthropic
+  name: claude-sonnet-5
+  api_key: ${ANTHROPIC_API_KEY}
+  # No temperature field — claude-sonnet-5 rejects it as a request
+  # parameter (see script.yaml's comment for the exact error).
+
+instructions: |
+  You are given a StorySpec JSON. Your job is to make sure it will render
+  into a watchable video, then render it.
+
+  1. Call check_render on the spec exactly as given.
+  2. If it reports any failures, read each message carefully — it names
+     the concrete problem and the fix (e.g. "array has 40 elements =
+     5658px wide ... use at most 7 elements"). Edit the spec accordingly:
+     shrink an oversized array or graph, rebalance or shorten narration
+     beats so animation steps get real screen time, or adjust
+     targetDurationSec to match what the spec actually produces. Never
+     invent what the algorithm does or how long a real render takes —
+     those are exactly what check_render is telling you.
+  3. Call check_render again on the fixed spec. Repeat steps 2-3 until it
+     reports pass: true. A warning-only result (no errors) already counts
+     as pass: true — you don't need to chase warnings to zero.
+  4. Call validate_spec to confirm the fixed spec is still structurally
+     and semantically valid — check_render only catches layout/pacing
+     problems, not the shape and consistency checks validate_spec already
+     owns.
+  5. Call sample_frames on the check_render-clean, validate_spec-clean
+     spec. Look at each returned image yourself — you can see them
+     directly. For each one, check exactly two things: is any text cut
+     off at the frame's edge, and does any element visibly overlap
+     another. Do not judge whether it looks good, stylish, or polished —
+     only these two structural problems. check_render already caught
+     everything that's checkable without actually looking at a frame.
+  6. If you see real text clipping or element overlap, treat it like a
+     check_render failure: revise the spec (a smaller input, shorter or
+     rebalanced narration) and go back to step 1, then re-run
+     sample_frames on the fixed spec too. But if what you're seeing is
+     the same in every frame regardless of what's in the spec — for
+     example, a caption sitting in the same place no matter the content —
+     that's a property of the fixed video template, not this spec. No
+     spec edit can fix it. Don't loop trying; note it once in your final
+     report and move on.
+  7. Only once check_render, validate_spec, and sample_frames are all
+     clean (aside from any template-level issue noted above), call
+     render_preview with the final spec.
+  8. Report back: the videoPath and durationSec render_preview returned,
+     a short list of what you changed from the original spec and why
+     (skip this list if the original spec needed no changes at all), and
+     any template-level visual issue you noticed in step 6 but couldn't
+     fix via the spec.
+
+mcp:
+  - name: algoreel
+    transport: stdio
+    # ${ALGOREEL_MCP_DIR} keeps this config machine-independent — export it
+    # to algoreel-mcp's path before running:
+    #   export ALGOREEL_MCP_DIR=/path/to/AlgoReel/algoreel-mcp
+    command: ["npx", "tsx", "${ALGOREEL_MCP_DIR}/src/server.ts"]
+
+tools:
+  - "algoreel.check_render"
+  - "algoreel.validate_spec"
+  - "algoreel.sample_frames"
+  - "algoreel.render_preview"
+
+approvals:
+  mode: annotated
+  auto_approve: ["algoreel.check_render", "algoreel.validate_spec", "algoreel.sample_frames"]
+  # check_render and validate_spec are pure and side-effect-free.
+  # sample_frames does real headless-Chrome rendering, but — like the
+  # other two — produces no persisted artifact: the images exist only in
+  # memory for this agent's own reasoning, nothing written to disk.
+  # render_preview is deliberately NOT auto-approved: it's the expensive,
+  # artifact-producing step (an actual render to disk), same gating
+  # principle as animate.yaml.
+  #
+  # Cost note: unlike the other three tools, sample_frames sends real
+  # images to Anthropic on every call — a few hundred vision tokens per
+  # frame, several frames per call. Not free like Layer 1.
+
+limits:
+  max_turns: 20      # a handful of check_render/fix rounds, a
+                      # sample_frames round or two, one validate_spec,
+                      # one render_preview call
+  max_tokens: 4096
