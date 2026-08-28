@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "topic": "binary search tree insertion",
+  "algorithm": "bstInsert",
+  "input": {
+    "values": [50, 30, 70, 20, 40, 65, 80]
+  },
+  "targetDurationSec": 43,
+  "hook": "Why does inserting into a binary search tree always come back out sorted?",
+  "narration": [
+    { "beat": "intro", "text": "Every new value starts at the root and walks down until it finds an empty spot." },
+    { "beat": "op:0", "text": "50 becomes the root — the very first node has nothing to compare against yet." },
+    { "beat": "op:1", "text": "30 and 70 each compare once against the root, landing left and right immediately." },
+    { "beat": "op:2", "text": "20 compares against 50, then 30, before finally attaching to 30's empty left." },
+    { "beat": "op:3", "text": "40 follows the same path as 20 until the values diverge, then attaches right of 30." },
+    { "beat": "op:4", "text": "65 and 80 both walk past 50 and 70 before settling into their own empty slots." },
+    { "beat": "outro", "text": "Reading the finished tree left, node, right in order hands back a perfectly sorted list." }
+  ],
+  "emphasis": ["ROOT", "EMPTY", "SORTED"],
+  "complexity": { "time": "O(h)", "space": "O(h)" },
+  "youtube": {
+    "title": "Binary Search Tree Insertion, Visually",
+    "description": "How inserting values one at a time into a binary search tree — each walking down from the root to find its slot — always leaves the tree readable back out in sorted order.",
+    "tags": ["dsa", "algorithms", "binary-search-tree", "bst", "coding"]
+  }
+}

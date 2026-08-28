@@ -330,3 +330,14 @@ test("committed balanced-parens-demo.json is clean end to end", () => {
   assert.deepEqual(result.failures, []);
   assert.equal(result.pass, true);
 });
+
+// bstInsert's proof case: a tree that grows one node at a time, unlike
+// inorderTraversal's fixed, already-complete tree — same "levels" layout,
+// same checkRender path, zero changes needed to get here.
+test("committed bst-insert-demo.json is clean end to end", () => {
+  const raw = readFileSync(join(import.meta.dirname, "../../specs/bst-insert-demo.json"), "utf8");
+  const spec = JSON.parse(raw) as StorySpec;
+  const result = checkRender(spec);
+  assert.deepEqual(result.failures, []);
+  assert.equal(result.pass, true);
+});

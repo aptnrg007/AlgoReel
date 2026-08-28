@@ -68,6 +68,7 @@ const HAND_WRITTEN_CANONICAL_INPUT: Record<string, Record<string, unknown>> = {
   reverseLinkedList: { list: [1, 2, 3, 4, 5] },
   inorderTraversal: { tree: [5, 3, 8, 1, 4, 7, 9] },
   checkBalancedParens: { expression: "(()(()))" },
+  bstInsert: { values: [50, 30, 70, 20, 40, 65, 80] },
 };
 const DEFAULT_ARRAY_INPUT: Record<string, unknown> = { array: [38, 12, 27, 5, 43, 9] };
 const DEFAULT_GRAPH_INPUT: Record<string, unknown> = HAND_WRITTEN_CANONICAL_INPUT.bfs!;

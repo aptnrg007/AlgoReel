@@ -26,6 +26,7 @@ export function inputShape(input: Record<string, unknown>): InputShape {
     Array.isArray(input.list) ||
     Array.isArray(input.nodes) ||
     Array.isArray(input.tree) ||
+    Array.isArray(input.values) ||
     typeof input.expression === "string"
   ) {
     return "struct";

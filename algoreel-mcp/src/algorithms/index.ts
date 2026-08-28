@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { bfs } from "./bfs";
 import { binarySearch } from "./binarySearch";
+import { bstInsert } from "./bstInsert";
 import { bubbleSort } from "./bubbleSort";
 import { checkBalancedParens } from "./checkBalancedParens";
 import { GENERATED } from "./generated/manifest";
@@ -77,6 +78,15 @@ register({
   inputSchema: z.object({ tree: z.array(z.number()).min(1) }),
   generated: false,
   run: inorderTraversal as AlgorithmEntry["run"],
+});
+
+register({
+  name: "bstInsert",
+  description: "Build a binary search tree by inserting values one at a time, each walking down from the root to find its slot.",
+  inputHint: "{ values: number[] (distinct; first value becomes the root) }",
+  inputSchema: z.object({ values: z.array(z.number()).min(1) }),
+  generated: false,
+  run: bstInsert as AlgorithmEntry["run"],
 });
 
 register({
