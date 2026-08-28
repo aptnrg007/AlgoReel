@@ -25,14 +25,20 @@ function resetGeneratedTreeDir(): void {
 const VALUES = [50, 30, 70, 20, 40, 65, 80];
 const INPUT = { values: VALUES };
 
+// Type-annotated, with trace.values[i] asserted non-null — see
+// sandbox.test.ts's REAL_MERGE_SORT comment for why the annotation is
+// structurally required. The assertion is the real fix for the actual
+// bug this whole validator was built to catch (algorithm-tree.yaml's own
+// commit): "i < trace.values.length" already guarantees the index is in
+// range, the same reasoning a real submission has to get right too.
 const REAL_BST_INSERT = `
-function run(trace) {
+function run(trace: TracedTree) {
   if (trace.isEmpty()) trace.insertRoot(0);
   for (let i = 1; i < trace.values.length; i++) {
     let cur = trace.root();
     while (true) {
       trace.focus(cur);
-      const goLeft = trace.values[i] < trace.valueOf(cur);
+      const goLeft = trace.values[i]! < trace.valueOf(cur);
       const child = goLeft ? trace.left(cur) : trace.right(cur);
       if (child === null) {
         trace.insertChild(cur, goLeft ? "left" : "right", i);

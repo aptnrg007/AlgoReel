@@ -28,9 +28,11 @@ after(resetGeneratedDir);
 
 // Correctly instrumented — same pattern sandbox.test.ts's REAL_MERGE_SORT
 // uses, kept simple here since these tests are about the retry loop, not
-// re-proving the sandbox's own validators.
+// re-proving the sandbox's own validators. Type-annotated on `trace` for
+// the same reason that file's own comment gives: required for
+// typeCheckGeneratedFile's checks to have any teeth at all, not just style.
 const GOOD_SELECTION_SORT = `
-function run(trace) {
+function run(trace: TracedArray) {
   for (let i = 0; i < trace.length; i++) {
     let min = i;
     for (let j = i + 1; j < trace.length; j++) {

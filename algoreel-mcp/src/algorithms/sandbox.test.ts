@@ -30,21 +30,29 @@ function resetGeneratedDir(): void {
 // so it calls trace.compare() once per pair for the animation/narration
 // signal and makes the actual decision on the buffered copies — the
 // same pattern script.yaml's contract documentation recommends.
+// Type-annotated on both run()'s own parameter and its inner helpers'
+// parameters — not just style. A real completion (this project's own
+// algorithm.yaml/algorithm-graph.yaml/algorithm-tree.yaml all document
+// the exact typed signature) always includes it, and it's structurally
+// required for typeCheckGeneratedFile's own noUncheckedIndexedAccess
+// check to have any teeth at all: an unannotated `trace` infers as
+// implicit `any`, and `any` suppresses every downstream type error,
+// including the exact class of bug that check exists to catch.
 const REAL_MERGE_SORT = `
-function run(trace) {
-  function merge(lo, mid, hi) {
+function run(trace: TracedArray) {
+  function merge(lo: number, mid: number, hi: number) {
     const left = [];
     for (let k = lo; k <= mid; k++) left.push(trace.get(k));
     const right = [];
     for (let k = mid + 1; k <= hi; k++) right.push(trace.get(k));
     let i = 0, j = 0, k = lo;
     while (i < left.length && j < right.length) {
-      if (left[i] <= right[j]) { trace.set(k++, left[i++]); } else { trace.set(k++, right[j++]); }
+      if (left[i]! <= right[j]!) { trace.set(k++, left[i++]!); } else { trace.set(k++, right[j++]!); }
     }
-    while (i < left.length) trace.set(k++, left[i++]);
-    while (j < right.length) trace.set(k++, right[j++]);
+    while (i < left.length) trace.set(k++, left[i++]!);
+    while (j < right.length) trace.set(k++, right[j++]!);
   }
-  function sort(lo, hi) {
+  function sort(lo: number, hi: number) {
     if (lo >= hi) return;
     const mid = Math.floor((lo + hi) / 2);
     sort(lo, mid);
@@ -57,7 +65,7 @@ function run(trace) {
 `;
 
 const DISGUISED_BUBBLE_SORT = `
-function run(trace) {
+function run(trace: TracedArray) {
   for (let i = 0; i < trace.length; i++) {
     for (let j = 0; j < trace.length - i - 1; j++) {
       if (trace.compare(j, j + 1) > 0) trace.swap(j, j + 1);

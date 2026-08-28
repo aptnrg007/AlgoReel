@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import * as esbuild from "esbuild";
+import * as ts from "typescript";
 
 import { isOrderedBst, isSameMultiset, structSnapshotFromTrace } from "./invariants";
 import {
@@ -46,6 +47,69 @@ export interface GenerateAlgorithmResult {
 }
 
 export class GenerateAlgorithmError extends Error {}
+
+const TSCONFIG_PATH = join(ROOT, "tsconfig.json");
+
+// Real type-checking, not just "does it transpile" — found live to be a
+// real gap: esbuild.transformSync (below, every codegen path's compile
+// check) only strips types, it doesn't check them, so generated code can
+// pass every sandbox validator and still fail the project's own real
+// `tsc --noEmit` once cached (noUncheckedIndexedAccess flagged an
+// unguarded `trace.values[i]` in a real generated tree file — the model
+// indexing `readonly number[]` directly is exactly the kind of thing
+// esbuild's loader never catches). Latent for array/graph too — neither
+// generated/cocktailsort.ts nor generated-graph/dfs.ts happens to index a
+// raw array directly, so it never surfaced there, but nothing about
+// those paths' own validators would have caught it either.
+//
+// Loaded once and memoized, not per call — tsconfig.json doesn't change
+// during this process's lifetime, and re-parsing it on every attempt
+// would be pure overhead across up to 3 retry attempts per request.
+let cachedCompilerOptions: ts.CompilerOptions | undefined;
+function loadCompilerOptions(): ts.CompilerOptions {
+  if (cachedCompilerOptions) return cachedCompilerOptions;
+  const configFile = ts.readConfigFile(TSCONFIG_PATH, ts.sys.readFile);
+  if (configFile.error) {
+    throw new Error(`failed to read tsconfig.json: ${ts.flattenDiagnosticMessageText(configFile.error.messageText, "\n")}`);
+  }
+  const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, dirname(TSCONFIG_PATH));
+  cachedCompilerOptions = { ...parsed.options, noEmit: true };
+  return cachedCompilerOptions;
+}
+
+// Type-checks exactly one file — rootNames is just [filePath], not the
+// whole project's include list, so this only processes filePath and
+// whatever it transitively imports (the real TracedArray/TracedGraph/
+// TracedTree contract files and their own dependencies), not every file
+// under src/ and remotion/. Confirmed live: ~300-700ms per call, not the
+// multi-second cost a full project type-check would be — negligible
+// against the sandbox's own subprocess spawn, and trivial against a
+// retry attempt's real model completion time.
+//
+// Filtered to diagnostics on filePath itself — a candidate file's own
+// errors are what this is checking for, not incidentally surfacing
+// something unrelated the Program happened to pull in.
+function typeCheckGeneratedFile(filePath: string): void {
+  const options = loadCompilerOptions();
+  const program = ts.createProgram({ rootNames: [filePath], options });
+  const diagnostics = ts.getPreEmitDiagnostics(program).filter((d) => d.file?.fileName === filePath);
+  if (diagnostics.length === 0) return;
+
+  const messages = diagnostics.map((d) => {
+    const text = ts.flattenDiagnosticMessageText(d.messageText, "\n");
+    if (d.file && d.start !== undefined) {
+      const { line, character } = d.file.getLineAndCharacterOfPosition(d.start);
+      return `line ${line + 1}, column ${character + 1}: ${text}`;
+    }
+    return text;
+  });
+  throw new GenerateAlgorithmError(
+    `generated code passed every runtime check but fails the project's real type-check:\n${messages.join("\n")}\n` +
+      `Fix the type error(s) — a common one is indexing an array (e.g. trace.values[i]) without accounting for ` +
+      `it possibly being undefined; use a local variable with a runtime check, or a non-null assertion only where ` +
+      `the index is already known in range.`,
+  );
+}
 
 // Rough expected compare-count class for names we have real prior
 // knowledge of — deliberately small and best-effort. An unrecognized
@@ -281,6 +345,18 @@ export async function generateAndValidateAlgorithm(req: GenerateAlgorithmInput):
   // it rather than trying to preserve it.
   const filePath = join(GENERATED_DIR, `${key}.ts`);
   await cacheGeneratedAlgorithm(req, key, filePath);
+
+  // Real type-check, not just "does it transpile" — see
+  // typeCheckGeneratedFile's own comment. Checked (and cleaned up on
+  // failure, same as the import step below) before the dynamic import,
+  // since there's no point importing something that fails the project's
+  // own tsc --noEmit regardless of whether the import itself succeeds.
+  try {
+    typeCheckGeneratedFile(filePath);
+  } catch (err) {
+    rmSync(filePath, { force: true });
+    throw err;
+  }
 
   // Load the file we just wrote and register it in-memory directly —
   // this dynamic import is fine here (unlike algorithms/index.ts, this
@@ -559,6 +635,15 @@ export async function generateAndValidateGraphAlgorithm(req: GenerateGraphAlgori
   const filePath = join(GENERATED_GRAPH_DIR, `${key}.ts`);
   await cacheGeneratedGraphAlgorithm(req, key, filePath);
 
+  // Real type-check — see typeCheckGeneratedFile's own comment and
+  // generateAndValidateAlgorithm's identical use of it above.
+  try {
+    typeCheckGeneratedFile(filePath);
+  } catch (err) {
+    rmSync(filePath, { force: true });
+    throw err;
+  }
+
   let mod: Record<string, unknown>;
   try {
     mod = await import(pathToFileURL(filePath).href);
@@ -757,6 +842,19 @@ export async function generateAndValidateTreeAlgorithm(req: GenerateTreeAlgorith
 
   const filePath = join(GENERATED_TREE_DIR, `${key}.ts`);
   await cacheGeneratedTreeAlgorithm(req, key, filePath);
+
+  // Real type-check — see typeCheckGeneratedFile's own comment. This is
+  // the exact path where the gap was found live: this file's own
+  // TracedTree.values being a plain readonly array makes trace.values[i]
+  // a natural thing for a model to write, and esbuild's transpile-only
+  // compile check above never catches the resulting noUncheckedIndexedAccess
+  // violation.
+  try {
+    typeCheckGeneratedFile(filePath);
+  } catch (err) {
+    rmSync(filePath, { force: true });
+    throw err;
+  }
 
   let mod: Record<string, unknown>;
   try {

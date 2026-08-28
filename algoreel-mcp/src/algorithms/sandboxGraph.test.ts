@@ -41,12 +41,20 @@ const EDGES: [string, string][] = [
 ];
 const INPUT = { nodes: NODES, edges: EDGES, start: "A" };
 
+// Type-annotated throughout — see sandbox.test.ts's REAL_MERGE_SORT
+// comment for why this is structurally required, not just style, for
+// typeCheckGeneratedFile's checks to have any teeth. queue.shift()'s
+// real return type is "string | undefined" regardless of any specific
+// tsconfig flag (Array.prototype.shift() is always possibly-undefined),
+// so it's asserted non-null here — the loop guard (queue.length > 0)
+// already makes that safe, the same guarantee a real submission would
+// have to reason about too.
 const REAL_BFS = `
-function run(trace) {
+function run(trace: TracedGraph) {
   const seen = new Set([trace.start]);
   const queue = [trace.start];
   while (queue.length > 0) {
-    const node = queue.shift();
+    const node = queue.shift()!;
     trace.visit(node);
     for (const neighbor of trace.neighbors(node)) {
       if (!seen.has(neighbor)) {
@@ -60,8 +68,8 @@ function run(trace) {
 `;
 
 const REAL_DFS = `
-function run(trace) {
-  function visit(node) {
+function run(trace: TracedGraph) {
+  function visit(node: string) {
     trace.visit(node);
     for (const neighbor of trace.neighbors(node)) {
       if (!trace.isVisited(neighbor)) {
