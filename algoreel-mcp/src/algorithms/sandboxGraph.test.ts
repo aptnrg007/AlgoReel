@@ -1,43 +1,30 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 
 import { generateAndValidateGraphAlgorithm } from "./sandbox";
 import { GenerateAlgorithmError } from "./sandbox";
+import { restoreDir, snapshotDir } from "./testGeneratedDirSnapshot";
 
 const GENERATED_GRAPH_DIR = join(dirname(fileURLToPath(import.meta.url)), "generated-graph");
-const MANIFEST_PATH = join(GENERATED_GRAPH_DIR, "manifest.ts");
 
-// Same reasoning as sandbox.test.ts's resetGeneratedDir: manifest.ts is a
-// required, committed baseline file (algorithms/index.ts has a hard
-// static import on it) — reset its contents to the empty baseline and
-// remove only the other files these tests produce. Note this only
-// resets the *disk* — index.ts's module-level registration loop already
-// ran once at this process's startup against whatever was on disk before
-// this file's before() hook ever fires (ES module evaluation happens
-// before any test code runs), so a real committed file is in the
+// Captured once, at import time — before this file's before() hook or
+// any test has run — so it reflects exactly what's really on disk/
+// committed (including the real, permanent generated-graph/dfs.ts, see
+// the "dfs" note below), not a hardcoded assumption. See
+// testGeneratedDirSnapshot.ts for why that distinction matters. Note
+// this only fixes the *disk* — index.ts's module-level registration loop
+// already ran once at this process's startup against whatever was on
+// disk before this file's before() hook ever fires (ES module evaluation
+// happens before any test code runs), so a real committed file is in the
 // in-memory registry for this whole process regardless. That's exactly
 // the "dfs" situation below, not a bug in this reset.
+const ORIGINAL_GENERATED_GRAPH = snapshotDir(GENERATED_GRAPH_DIR);
+
 function resetGeneratedGraphDir(): void {
-  if (existsSync(GENERATED_GRAPH_DIR)) {
-    for (const f of readdirSync(GENERATED_GRAPH_DIR)) {
-      if (f !== "manifest.ts") rmSync(join(GENERATED_GRAPH_DIR, f));
-    }
-  }
-  writeFileSync(
-    MANIFEST_PATH,
-    `import type { AlgorithmResult } from "../types";
-
-export interface GeneratedGraphManifestEntry {
-  description: string;
-  run: (input: { nodes: string[]; edges: [string, string][]; start: string }) => AlgorithmResult;
-}
-
-export const GENERATED_GRAPH: Record<string, GeneratedGraphManifestEntry> = {};
-`,
-  );
+  restoreDir(GENERATED_GRAPH_DIR, ORIGINAL_GENERATED_GRAPH);
 }
 
 // A..D, deliberately small: BFS from A visits [A,B,C,D] (B and C both

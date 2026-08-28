@@ -1,36 +1,26 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 
 import { ensureAlgorithm, EnsureAlgorithmError } from "./ensureAlgorithm";
+import { restoreDir, snapshotDir } from "./testGeneratedDirSnapshot";
 
 const GENERATED_DIR = join(dirname(fileURLToPath(import.meta.url)), "generated");
-const MANIFEST_PATH = join(GENERATED_DIR, "manifest.ts");
 
-// Same reset as sandbox.test.ts — manifest.ts is a required, committed
-// baseline file (algorithms/index.ts has a hard static import on it), so
-// only the files it lists get removed, and the manifest itself is
-// rewritten back to empty rather than deleted.
+// Same reset as sandbox.test.ts, and captured for the same reason: this
+// file runs as its own process under `node --test` (multiple test files
+// each get process isolation by default) and independently resets this
+// exact directory, so it must derive "clean" from what's really on disk
+// too, not a hardcoded empty literal — otherwise its after() hook can
+// clobber sandbox.test.ts's own correct restore with a stale empty one,
+// depending on which process happens to finish last. See
+// testGeneratedDirSnapshot.ts.
+const ORIGINAL_GENERATED = snapshotDir(GENERATED_DIR);
+
 function resetGeneratedDir(): void {
-  if (existsSync(GENERATED_DIR)) {
-    for (const f of readdirSync(GENERATED_DIR)) {
-      if (f !== "manifest.ts") rmSync(join(GENERATED_DIR, f));
-    }
-  }
-  writeFileSync(
-    MANIFEST_PATH,
-    `import type { AlgorithmResult } from "../types";
-
-export interface GeneratedManifestEntry {
-  description: string;
-  run: (input: { array: number[] }) => AlgorithmResult;
-}
-
-export const GENERATED: Record<string, GeneratedManifestEntry> = {};
-`,
-  );
+  restoreDir(GENERATED_DIR, ORIGINAL_GENERATED);
 }
 
 before(resetGeneratedDir);

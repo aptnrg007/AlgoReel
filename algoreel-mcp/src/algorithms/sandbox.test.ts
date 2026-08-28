@@ -1,38 +1,22 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 
 import { generateAndValidateAlgorithm, GenerateAlgorithmError } from "./sandbox";
+import { restoreDir, snapshotDir } from "./testGeneratedDirSnapshot";
 
 const GENERATED_DIR = join(dirname(fileURLToPath(import.meta.url)), "generated");
-const MANIFEST_PATH = join(GENERATED_DIR, "manifest.ts");
 
-// manifest.ts is a required, committed baseline file (algorithms/index.ts
-// has a hard static import on it) — deleting the whole directory would
-// leave the repo unable to build until it's hand-recreated. Removes only
-// the *other* generated files these tests produce and resets the
-// manifest back to its empty baseline content, matching what's actually
-// checked in.
+// Captured once, at import time — before any test in this file (or its
+// before() hook) has had a chance to run — so it reflects exactly what's
+// really on disk/committed, not a hardcoded assumption. See
+// testGeneratedDirSnapshot.ts for why that distinction matters.
+const ORIGINAL_GENERATED = snapshotDir(GENERATED_DIR);
+
 function resetGeneratedDir(): void {
-  if (existsSync(GENERATED_DIR)) {
-    for (const f of readdirSync(GENERATED_DIR)) {
-      if (f !== "manifest.ts") rmSync(join(GENERATED_DIR, f));
-    }
-  }
-  writeFileSync(
-    MANIFEST_PATH,
-    `import type { AlgorithmResult } from "../types";
-
-export interface GeneratedManifestEntry {
-  description: string;
-  run: (input: { array: number[] }) => AlgorithmResult;
-}
-
-export const GENERATED: Record<string, GeneratedManifestEntry> = {};
-`,
-  );
+  restoreDir(GENERATED_DIR, ORIGINAL_GENERATED);
 }
 
 // Properly instrumented — real decisions route through trace.compare(),
