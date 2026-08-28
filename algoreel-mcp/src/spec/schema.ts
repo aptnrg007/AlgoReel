@@ -89,7 +89,7 @@ export type StorySpecParsed = z.infer<typeof storySpecSchema>;
 // example rather than topic-derived — see specs/*.json).
 export const algorithmChoiceSchema = z.object({
   algorithm: z.string().min(1),
-  structure: z.enum(["array", "graph", "other"]),
+  structure: z.enum(["array", "graph", "tree", "other"]),
 });
 
 // narrate.yaml's output. Notably NOT { narration: [{beat, text}] } — that

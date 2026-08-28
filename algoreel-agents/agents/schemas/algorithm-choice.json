@@ -11,6 +11,7 @@
       "enum": [
         "array",
         "graph",
+        "tree",
         "other"
       ]
     }

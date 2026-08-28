@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { runAgent, RunAgentError, stripFence } from "../agents/runAgent";
 import { getAlgorithmByNormalizedName, normalizeAlgorithmName } from "./index";
-import { generateAndValidateAlgorithm, generateAndValidateGraphAlgorithm, GenerateAlgorithmError } from "./sandbox";
+import { generateAndValidateAlgorithm, generateAndValidateGraphAlgorithm, generateAndValidateTreeAlgorithm, GenerateAlgorithmError } from "./sandbox";
 
 // The algorithm agent (PLAN.md's follow-up to Phase A): script.yaml no
 // longer writes algorithm implementations itself — it asks for one by
@@ -33,9 +33,18 @@ import { generateAndValidateAlgorithm, generateAndValidateGraphAlgorithm, Genera
 // (sandbox.ts's GRAPH_REFERENCE lookup rejects anything else immediately,
 // before ever running the sandbox) — unlike "is this a search," "is this
 // bfs or dfs" is exactly checkable from the name.
+//
+// Tree structure: BST insertion only ("bstInsert"), also mechanically
+// enforced (sandbox.ts's TREE_SUPPORTED_NAMES lookup). Unlike array/graph,
+// its correctness check has no reference computation behind it at all —
+// invariants.ts's isOrderedBst/isSameMultiset check the shape a submitted
+// implementation's tree ended up in, not whether it matches one specific
+// reference run (see sandbox.ts's tree codegen section for the full
+// reasoning, and the honest limits of that approach on other families).
 const MCP_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ALGORITHM_AGENT_PATH = join(MCP_ROOT, "..", "algoreel-agents", "agents", "algorithm.yaml");
 const ALGORITHM_GRAPH_AGENT_PATH = join(MCP_ROOT, "..", "algoreel-agents", "agents", "algorithm-graph.yaml");
+const ALGORITHM_TREE_AGENT_PATH = join(MCP_ROOT, "..", "algoreel-agents", "agents", "algorithm-tree.yaml");
 const MAX_ATTEMPTS = 3;
 
 // A fixed sample, not whatever input the eventual video will use —
@@ -63,6 +72,11 @@ const VALIDATION_GRAPH: { nodes: string[]; edges: [string, string][]; start: str
   ],
   start: "A",
 };
+
+// Same idea, for the tree path — reuses bst-insert-demo.json's exact
+// values, so its shape is already cross-checked against that demo's own
+// committed, checkRender-clean spec, not just this file's say-so.
+const VALIDATION_TREE: { values: number[] } = { values: [50, 30, 70, 20, 40, 65, 80] };
 
 export class EnsureAlgorithmError extends Error {}
 
@@ -126,6 +140,11 @@ const STRUCTURE_DISPATCH: Record<
     validate: (name, description, code) =>
       generateAndValidateGraphAlgorithm({ name, description, code, input: VALIDATION_GRAPH }),
   },
+  tree: {
+    agentPath: ALGORITHM_TREE_AGENT_PATH,
+    validate: (name, description, code) =>
+      generateAndValidateTreeAlgorithm({ name, description, code, input: VALIDATION_TREE }),
+  },
 };
 
 export async function ensureAlgorithm(
@@ -136,8 +155,8 @@ export async function ensureAlgorithm(
   const dispatch = STRUCTURE_DISPATCH[structureKey];
   if (!dispatch) {
     throw new EnsureAlgorithmError(
-      `ensure_algorithm only supports structure: "array" or "graph" right now (got "${req.structure}") — ` +
-        `linked lists, trees, and stacks aren't covered by this codegen path yet (they're hand-written instead — ` +
+      `ensure_algorithm only supports structure: "array", "graph", or "tree" right now (got "${req.structure}") — ` +
+        `linked lists and stacks aren't covered by this codegen path yet (they're hand-written instead — ` +
         `call list_algorithms to see what's already available).`,
     );
   }

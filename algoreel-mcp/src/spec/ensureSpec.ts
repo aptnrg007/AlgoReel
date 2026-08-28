@@ -72,6 +72,7 @@ const HAND_WRITTEN_CANONICAL_INPUT: Record<string, Record<string, unknown>> = {
 };
 const DEFAULT_ARRAY_INPUT: Record<string, unknown> = { array: [38, 12, 27, 5, 43, 9] };
 const DEFAULT_GRAPH_INPUT: Record<string, unknown> = HAND_WRITTEN_CANONICAL_INPUT.bfs!;
+const DEFAULT_TREE_INPUT: Record<string, unknown> = HAND_WRITTEN_CANONICAL_INPUT.bstInsert!;
 
 // Asserted once at module load, not just asserted in a comment: every
 // canonical array here really is at or under checkRender.ts's own
@@ -149,16 +150,19 @@ function keywordMatchAlgorithm(topic: string): { name: string } | undefined {
 // inputSchema as the generic z.ZodTypeAny, so there's no type-safe way to
 // read its shape without a runtime cast, and every entry's inputHint
 // already says the same thing in the one place a human is meant to read it.
-function structureOf(entry: { inputHint: string }): "array" | "graph" | "other" {
+function structureOf(entry: { inputHint: string }): "array" | "graph" | "tree" | "other" {
   if (entry.inputHint.includes("array")) return "array";
   if (entry.inputHint.includes("nodes")) return "graph";
+  if (entry.inputHint.includes("values")) return "tree";
   return "other";
 }
 
-function canonicalInputFor(algorithmName: string, structure: "array" | "graph" | "other"): Record<string, unknown> {
+function canonicalInputFor(algorithmName: string, structure: "array" | "graph" | "tree" | "other"): Record<string, unknown> {
   const exact = HAND_WRITTEN_CANONICAL_INPUT[algorithmName];
   if (exact) return exact;
-  return structure === "graph" ? DEFAULT_GRAPH_INPUT : DEFAULT_ARRAY_INPUT;
+  if (structure === "graph") return DEFAULT_GRAPH_INPUT;
+  if (structure === "tree") return DEFAULT_TREE_INPUT;
+  return DEFAULT_ARRAY_INPUT;
 }
 
 function selectionRungs(): Rung[] {
@@ -179,7 +183,7 @@ async function resolveAlgorithm(
   topic: string,
   deps: EnsureSpecDeps,
   notes: string[],
-): Promise<{ algorithm: string; structure: "array" | "graph" | "other"; selectRung?: number }> {
+): Promise<{ algorithm: string; structure: "array" | "graph" | "tree" | "other"; selectRung?: number }> {
   const catalog = listAlgorithms()
     .map((a) => `- ${a.name} (${a.generated ? "generated" : "hand-written"}): ${a.description}`)
     .join("\n");
@@ -199,8 +203,11 @@ async function resolveAlgorithm(
       `list of numbers but nothing above matches, answer with a made-up but reasonable name (e.g. "insertionSort") ` +
       `and structure "array" — a new implementation will be generated. If it's graph traversal (most likely ` +
       `breadth-first or depth-first search) and nothing above matches, answer "bfs" or "dfs" with structure ` +
-      `"graph". If it's none of those, answer with the closest existing name and structure "other" — never invent ` +
-      `an "other"-structure algorithm, only array/graph ones can be generated.${correction}`
+      `"graph". If it's building a binary search tree by inserting values one at a time and nothing above ` +
+      `matches, answer "bstInsert" with structure "tree" — deletion, rotation, and AVL/red-black rebalancing are ` +
+      `NOT covered, don't use "tree" for those. If it's none of those, answer with the closest existing name and ` +
+      `structure "other" — never invent an "other"-structure algorithm, only array/graph/tree ones can be ` +
+      `generated.${correction}`
     );
   };
 
@@ -216,7 +223,7 @@ async function resolveAlgorithm(
 
 async function resolveRegisteredName(
   algorithm: string,
-  structure: "array" | "graph" | "other",
+  structure: "array" | "graph" | "tree" | "other",
   deps: EnsureSpecDeps,
 ): Promise<string> {
   const exact = getAlgorithm(algorithm) ?? getAlgorithmByNormalizedName(normalizeAlgorithmName(algorithm));
@@ -232,8 +239,8 @@ async function resolveRegisteredName(
     const fuzzy = keywordMatchAlgorithm(algorithm);
     if (fuzzy) return fuzzy.name;
     throw new EnsureSpecError(
-      `"${algorithm}" isn't a known algorithm and structure "other" isn't codegen-eligible (only "array"/"graph" ` +
-        `are) — call list_algorithms to see what's really available rather than force-fitting an existing one.`,
+      `"${algorithm}" isn't a known algorithm and structure "other" isn't codegen-eligible (only "array"/"graph"/ ` +
+        `"tree" are) — call list_algorithms to see what's really available rather than force-fitting an existing one.`,
     );
   }
 

@@ -209,15 +209,16 @@ server.registerTool(
   {
     description:
       "Guarantee an algorithm is available to run, generating and validating it if it isn't already. Call this when a topic doesn't genuinely match anything in list_algorithms, instead of forcing a mismatched existing algorithm into the slot. This tool does NOT run the algorithm on your video's input — call run_algorithm({algorithm: <the returned name>, input}) afterward for that. " +
-      "Two structures, each with a real correctness check, nothing else covered: " +
+      "Three structures, each with a real correctness check, nothing else covered: " +
       "structure:\"array\" is SORTING ONLY — its check compares the result against the array sorted ascending, which has no meaning for a search or anything else. Do not call this for a search algorithm (binarySearch, from list_algorithms, is the only search available). " +
       "structure:\"graph\" is BFS/DFS ONLY (unweighted, by name) — its check compares the visit order against a real reference traversal. Do not call this for Dijkstra, a minimum spanning tree, or anything needing edge weights. " +
-      "Any other structure (linked list, tree, stack) isn't covered by this tool at all — be honest that it's unsupported instead of asking for one of the above as a stand-in. " +
+      "structure:\"tree\" is BST INSERTION ONLY (name \"bstInsert\") — its check is structural (does the result obey BST ordering and contain every input value exactly once), not a reference traversal. Do not call this for deletion, rotation, or AVL/red-black rebalancing. " +
+      "Any other structure (linked list, stack) isn't covered by this tool at all — be honest that it's unsupported instead of asking for one of the above as a stand-in. " +
       "Internally this hands the job to a dedicated algorithm-writing agent and retries with real validator feedback on failure (up to 3 attempts), so it can take a while — expect tens of seconds to a few minutes on a genuinely new algorithm, and near-instant if it's already cached.",
     inputSchema: {
       algorithm: z.string().min(1),
       description: z.string().optional(),
-      structure: z.enum(["array", "graph"]).optional(),
+      structure: z.enum(["array", "graph", "tree"]).optional(),
     },
   },
   async ({ algorithm, description, structure }) => {

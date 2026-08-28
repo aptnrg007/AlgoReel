@@ -7,6 +7,7 @@ import { bubbleSort } from "./bubbleSort";
 import { checkBalancedParens } from "./checkBalancedParens";
 import { GENERATED } from "./generated/manifest";
 import { GENERATED_GRAPH } from "./generated-graph/manifest";
+import { GENERATED_TREE } from "./generated-tree/manifest";
 import { inorderTraversal } from "./inorderTraversal";
 import { reverseLinkedList } from "./reverseLinkedList";
 import type { AlgorithmResult } from "./types";
@@ -112,6 +113,9 @@ for (const [name, { description, run }] of Object.entries(GENERATED)) {
 for (const [name, { description, run }] of Object.entries(GENERATED_GRAPH)) {
   registerGeneratedGraph(name, description, run as AlgorithmEntry["run"]);
 }
+for (const [name, { description, run }] of Object.entries(GENERATED_TREE)) {
+  registerGeneratedTree(name, description, run as AlgorithmEntry["run"]);
+}
 
 // Registers a codegen-produced algorithm (PLAN.md's Phase A) into the
 // live in-memory registry — called both when loading previously-cached
@@ -145,6 +149,21 @@ export function registerGeneratedGraph(name: string, description: string, run: A
       edges: z.array(z.tuple([z.string().min(1), z.string().min(1)])),
       start: z.string().min(1),
     }),
+    generated: true,
+    run,
+  });
+}
+
+// Tree-shaped twin of registerGenerated — the tree codegen path
+// (sandbox.ts's generateAndValidateTreeAlgorithm) only covers BST
+// insertion, so the input contract is fixed to the same shape
+// bstInsert.ts's own hand-written entry already uses.
+export function registerGeneratedTree(name: string, description: string, run: AlgorithmEntry["run"]): void {
+  register({
+    name,
+    description,
+    inputHint: "{ values: number[] } (distinct; first value becomes the root)",
+    inputSchema: z.object({ values: z.array(z.number()).min(1) }),
     generated: true,
     run,
   });
