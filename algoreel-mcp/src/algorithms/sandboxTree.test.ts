@@ -124,7 +124,7 @@ after(resetGeneratedTreeDir);
 // (getAlgorithmByNormalizedName short-circuits to it, the same "bfs"/
 // "dfs" situation sandboxGraph.test.ts's own naming note documents) — so
 // every test below that actually wants to exercise the sandbox uses
-// "binarySearchTreeInsert" instead, one of TREE_SUPPORTED_NAMES's other
+// "binarySearchTreeInsertion" instead, one of TREE_SUPPORTED_NAMES's other
 // accepted spellings (sandbox.ts).
 
 test("an unsupported algorithm name is rejected immediately, before any sandbox run", async () => {
@@ -136,29 +136,29 @@ test("an unsupported algorithm name is rejected immediately, before any sandbox 
 
 test("a tree that violates BST ordering is rejected, not cached", async () => {
   await assert.rejects(
-    generateAndValidateTreeAlgorithm({ name: "binarySearchTreeInsert", description: "t", code: WRONG_SHAPE_CODE, input: INPUT }),
+    generateAndValidateTreeAlgorithm({ name: "binarySearchTreeInsertion", description: "t", code: WRONG_SHAPE_CODE, input: INPUT }),
     (err: unknown) => err instanceof GenerateAlgorithmError && /isn't a valid binary search tree/.test(err.message),
   );
-  assert.ok(!existsSync(join(GENERATED_TREE_DIR, "binarysearchtreeinsert.ts")), "a rejected implementation must not be cached");
+  assert.ok(!existsSync(join(GENERATED_TREE_DIR, "binarysearchtreeinsertion.ts")), "a rejected implementation must not be cached");
 });
 
 test("a valid BST missing an input value is rejected", async () => {
   await assert.rejects(
-    generateAndValidateTreeAlgorithm({ name: "binarySearchTreeInsert", description: "t", code: MISSING_VALUE_CODE, input: INPUT }),
+    generateAndValidateTreeAlgorithm({ name: "binarySearchTreeInsertion", description: "t", code: MISSING_VALUE_CODE, input: INPUT }),
     (err: unknown) => err instanceof GenerateAlgorithmError && /must appear exactly once/.test(err.message),
   );
 });
 
 test("correct shape and values that never calls trace.focus() is rejected, not just cached with a warning", async () => {
   await assert.rejects(
-    generateAndValidateTreeAlgorithm({ name: "binarySearchTreeInsert", description: "t", code: BST_INSERT_NO_FOCUS, input: INPUT }),
+    generateAndValidateTreeAlgorithm({ name: "binarySearchTreeInsertion", description: "t", code: BST_INSERT_NO_FOCUS, input: INPUT }),
     (err: unknown) => err instanceof GenerateAlgorithmError && /never called trace\.focus/.test(err.message),
   );
 });
 
 test("an infinite loop is killed and reported as a clean error, not a hang", async () => {
   await assert.rejects(
-    generateAndValidateTreeAlgorithm({ name: "binarySearchTreeInsert", description: "t", code: INFINITE_LOOP_CODE, input: INPUT }),
+    generateAndValidateTreeAlgorithm({ name: "binarySearchTreeInsertion", description: "t", code: INFINITE_LOOP_CODE, input: INPUT }),
     (err: unknown) => err instanceof GenerateAlgorithmError,
   );
 });
@@ -166,7 +166,7 @@ test("an infinite loop is killed and reported as a clean error, not a hang", asy
 test("code attempting require() is blocked by the sandbox", async () => {
   await assert.rejects(
     generateAndValidateTreeAlgorithm({
-      name: "binarySearchTreeInsert",
+      name: "binarySearchTreeInsertion",
       description: "t",
       code: ESCAPE_ATTEMPT_CODE,
       input: INPUT,
@@ -177,7 +177,7 @@ test("code attempting require() is blocked by the sandbox", async () => {
 
 test("a correct, properly-instrumented BST insert passes and caches a file", async () => {
   const result = await generateAndValidateTreeAlgorithm({
-    name: "binarySearchTreeInsert",
+    name: "binarySearchTreeInsertion",
     description: "test fixture",
     code: REAL_BST_INSERT,
     input: INPUT,
@@ -185,5 +185,5 @@ test("a correct, properly-instrumented BST insert passes and caches a file", asy
   // finalValues is in insertion (id) order, not sorted — snapshot.nodes
   // comes straight from the struct op's declaration order.
   assert.ok(result.summary.includes("50, 30, 70, 20, 40, 65, 80"));
-  assert.ok(existsSync(join(GENERATED_TREE_DIR, "binarysearchtreeinsert.ts")), "expected a cached generated file");
+  assert.ok(existsSync(join(GENERATED_TREE_DIR, "binarysearchtreeinsertion.ts")), "expected a cached generated file");
 });

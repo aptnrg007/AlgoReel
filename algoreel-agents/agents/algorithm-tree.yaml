@@ -71,10 +71,19 @@ instructions: |
     }
 
   Rules:
+  - `run` is called exactly ONCE, and is responsible for inserting EVERY
+    value in `trace.values`, not just one of them. Do not write it as if
+    it might be called once per value — there is no outer loop calling
+    you repeatedly, and nothing else will insert the remaining values if
+    you don't.
   - `trace.values` is the full sequence to insert, in order. values[0]
     becomes the root.
   - If the tree is empty (`trace.isEmpty()`), call `trace.insertRoot(0)`
-    first, before doing anything else.
+    first — then keep going in the SAME call to insert every value after
+    it too. Never `return` right after `insertRoot(0)`; that would leave
+    every other value uninserted, which is exactly the most common
+    mistake here — an early return that treats "insert the root" as the
+    whole job instead of just its first step.
   - For every value after the first, start at `trace.root()` and walk
     down: at each node, call `trace.focus(node)` to mark it as the one
     currently under comparison, then compare the value you're inserting
