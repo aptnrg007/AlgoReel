@@ -4,7 +4,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 
-import { generateAndValidateAlgorithm, GenerateAlgorithmError } from "./sandbox";
+import { generateAndValidateAlgorithm } from "./sandboxArray";
+import { GenerateAlgorithmError } from "./sandboxCore";
 import { restoreDir, snapshotDir } from "./testGeneratedDirSnapshot";
 
 const GENERATED_DIR = join(dirname(fileURLToPath(import.meta.url)), "generated");

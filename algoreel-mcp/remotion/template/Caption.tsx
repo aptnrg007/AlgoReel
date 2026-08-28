@@ -1,11 +1,15 @@
 import React from "react";
 import { spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { COLORS, SAFE_AREA, TYPE_SCALE } from "./tokens";
+import { COLORS, POP_SPRING_CONFIG, SAFE_AREA, TYPE_SCALE } from "./tokens";
 
 // Splits caption text on emphasis words (case-insensitive) and colors them.
 // Emphasis words are chosen by the agent (spec.emphasis) — this component
-// just applies the treatment consistently.
-function splitEmphasis(text: string, emphasis: string[]): Array<{ text: string; emphasized: boolean }> {
+// just applies the treatment consistently. Exported so Outro.tsx's caption
+// (the only other place narration text renders) applies the exact same
+// treatment instead of re-deriving it — src/spec/emphasis.ts's own comment
+// already reasons about this function's exact behavior by name, so there's
+// only ever one real implementation to stay consistent with.
+export function splitEmphasis(text: string, emphasis: string[]): Array<{ text: string; emphasized: boolean }> {
   if (emphasis.length === 0) return [{ text, emphasized: false }];
   const pattern = new RegExp(`(${emphasis.map(escapeRegExp).join("|")})`, "gi");
   const parts = text.split(pattern);
@@ -24,7 +28,7 @@ function escapeRegExp(s: string): string {
 export const Caption: React.FC<{ text: string; emphasis: string[] }> = ({ text, emphasis }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const pop = spring({ frame, fps, config: { damping: 200 }, durationInFrames: 12 });
+  const pop = spring({ frame, fps, config: POP_SPRING_CONFIG, durationInFrames: 12 });
 
   const parts = splitEmphasis(text, emphasis);
 

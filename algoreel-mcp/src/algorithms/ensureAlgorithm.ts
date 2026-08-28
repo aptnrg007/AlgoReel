@@ -1,16 +1,19 @@
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { runAgent, RunAgentError, stripFence } from "../agents/runAgent";
+import { ROOT } from "../config/paths";
 import { getAlgorithmByNormalizedName, normalizeAlgorithmName } from "./index";
-import { generateAndValidateAlgorithm, generateAndValidateGraphAlgorithm, generateAndValidateTreeAlgorithm, GenerateAlgorithmError } from "./sandbox";
+import { generateAndValidateAlgorithm } from "./sandboxArray";
+import { GenerateAlgorithmError } from "./sandboxCore";
+import { generateAndValidateGraphAlgorithm } from "./sandboxGraph";
+import { generateAndValidateTreeAlgorithm } from "./sandboxTree";
 
 // The algorithm agent (PLAN.md's follow-up to Phase A): script.yaml no
 // longer writes algorithm implementations itself — it asks for one by
 // name via ensure_algorithm, which either finds it already cached or
 // gets a dedicated, toolless specialist agent to write one (algorithm.yaml
 // for arrays, algorithm-graph.yaml for graphs — STRUCTURE_DISPATCH below
-// picks which), feeding sandbox.ts's real validator errors back on
+// picks which), feeding sandboxCore.ts's real validator errors back on
 // failure. The retry loop lives here, in TypeScript, not inside either
 // agent's own AgentForge turn loop — both run on a small local model, and
 // a toolless "read prompt, emit code" turn is the most reliable thing to
@@ -18,7 +21,7 @@ import { generateAndValidateAlgorithm, generateAndValidateGraphAlgorithm, genera
 // project's local-model testing already found qwen3 unreliable at (see
 // script.free.yaml's STATUS comment).
 //
-// Array structure: sorting only, not searching — sandbox.ts's
+// Array structure: sorting only, not searching — sandboxArray.ts's
 // correctness check compares the sandboxed result against the array
 // sorted ascending, which has no meaning for a search. Not mechanically
 // enforced here (there's no cheap way to detect "this is a search" from
@@ -30,21 +33,21 @@ import { generateAndValidateAlgorithm, generateAndValidateGraphAlgorithm, genera
 // search.
 //
 // Graph structure: bfs/dfs only, and *this* one IS mechanically enforced
-// (sandbox.ts's GRAPH_REFERENCE lookup rejects anything else immediately,
-// before ever running the sandbox) — unlike "is this a search," "is this
-// bfs or dfs" is exactly checkable from the name.
+// (sandboxGraph.ts's GRAPH_REFERENCE lookup rejects anything else
+// immediately, before ever running the sandbox) — unlike "is this a
+// search," "is this bfs or dfs" is exactly checkable from the name.
 //
 // Tree structure: BST insertion only ("bstInsert"), also mechanically
-// enforced (sandbox.ts's TREE_SUPPORTED_NAMES lookup). Unlike array/graph,
-// its correctness check has no reference computation behind it at all —
-// invariants.ts's isOrderedBst/isSameMultiset check the shape a submitted
-// implementation's tree ended up in, not whether it matches one specific
-// reference run (see sandbox.ts's tree codegen section for the full
-// reasoning, and the honest limits of that approach on other families).
-const MCP_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const ALGORITHM_AGENT_PATH = join(MCP_ROOT, "..", "algoreel-agents", "agents", "algorithm.yaml");
-const ALGORITHM_GRAPH_AGENT_PATH = join(MCP_ROOT, "..", "algoreel-agents", "agents", "algorithm-graph.yaml");
-const ALGORITHM_TREE_AGENT_PATH = join(MCP_ROOT, "..", "algoreel-agents", "agents", "algorithm-tree.yaml");
+// enforced (sandboxTree.ts's TREE_SUPPORTED_NAMES lookup). Unlike
+// array/graph, its correctness check has no reference computation behind
+// it at all — invariants.ts's isOrderedBst/isSameMultiset check the shape
+// a submitted implementation's tree ended up in, not whether it matches
+// one specific reference run (see sandboxTree.ts's own header comment for
+// the full reasoning, and the honest limits of that approach on other
+// families).
+const ALGORITHM_AGENT_PATH = join(ROOT, "..", "algoreel-agents", "agents", "algorithm.yaml");
+const ALGORITHM_GRAPH_AGENT_PATH = join(ROOT, "..", "algoreel-agents", "agents", "algorithm-graph.yaml");
+const ALGORITHM_TREE_AGENT_PATH = join(ROOT, "..", "algoreel-agents", "agents", "algorithm-tree.yaml");
 const MAX_ATTEMPTS = 3;
 
 // A fixed sample, not whatever input the eventual video will use —

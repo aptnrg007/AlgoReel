@@ -6,6 +6,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+import { text } from "./mcp/respond";
+
 // A deliberately separate, tiny MCP server from src/server.ts's algoreel
 // tools (PLAN.md §5 already namespaces "youtube.upload" apart from
 // "algoreel.*") — when real credentials land (PLAN.md §11), only this
@@ -17,10 +19,6 @@ import { z } from "zod";
 // behind approval exactly as the real thing would need — swapping the
 // stub body for a real upload requires no change to that approval policy.
 const server = new McpServer({ name: "youtube", version: "0.1.0" });
-
-function text(value: string, isError = false) {
-  return { content: [{ type: "text" as const, text: value }], isError };
-}
 
 server.registerTool(
   "upload",

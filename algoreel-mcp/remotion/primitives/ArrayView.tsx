@@ -1,6 +1,6 @@
 import React from "react";
 import { spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { CELL, COLORS, TYPE_SCALE } from "../template/tokens";
+import { CELL, COLORS, POP_SPRING_CONFIG, POP_SPRING_DURATION_FRAMES, TYPE_SCALE } from "../template/tokens";
 import type { VisualState } from "./state";
 
 const CELL_COLOR: Record<"neutral" | "focus" | "found" | "dead", string> = {
@@ -20,7 +20,7 @@ const TEXT_COLOR: Record<"neutral" | "focus" | "found" | "dead", string> = {
 export const ArrayView: React.FC<{ state: VisualState }> = ({ state }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const pop = spring({ frame, fps, config: { damping: 200 }, durationInFrames: 15 });
+  const pop = spring({ frame, fps, config: POP_SPRING_CONFIG, durationInFrames: POP_SPRING_DURATION_FRAMES });
 
   const n = state.array.length;
   const totalWidth = n * CELL.size + (n - 1) * CELL.gap;

@@ -4,8 +4,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 
-import { generateAndValidateGraphAlgorithm } from "./sandbox";
-import { GenerateAlgorithmError } from "./sandbox";
+import { generateAndValidateGraphAlgorithm } from "./sandboxGraph";
+import { GenerateAlgorithmError } from "./sandboxCore";
 import { restoreDir, snapshotDir } from "./testGeneratedDirSnapshot";
 
 const GENERATED_GRAPH_DIR = join(dirname(fileURLToPath(import.meta.url)), "generated-graph");

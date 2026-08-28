@@ -1,18 +1,24 @@
 import React from "react";
 import { spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { COLORS, TYPE_SCALE } from "./tokens";
+import { COLORS, POP_SPRING_CONFIG, POP_SPRING_DURATION_FRAMES, TYPE_SCALE } from "./tokens";
+import { splitEmphasis } from "./Caption";
 
 // Complexity card, always the same layout (PLAN.md §6): every video ends
-// hook -> algorithm animation -> complexity card.
+// hook -> algorithm animation -> complexity card. The outro caption
+// highlights emphasis words the same way Caption.tsx's main narration
+// captions do (splitEmphasis) — found live: Video.tsx was already passing
+// `emphasis` here, but this component never read it, so the outro line
+// rendered as plain text while every other caption in the video did not.
 export const Outro: React.FC<{
   time: string;
   space: string;
   caption: string;
   emphasis: string[];
-}> = ({ time, space, caption }) => {
+}> = ({ time, space, caption, emphasis }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const pop = spring({ frame, fps, config: { damping: 200 }, durationInFrames: 15 });
+  const pop = spring({ frame, fps, config: POP_SPRING_CONFIG, durationInFrames: POP_SPRING_DURATION_FRAMES });
+  const parts = splitEmphasis(caption, emphasis);
 
   return (
     <div style={{ textAlign: "center", opacity: pop, transform: `translateY(${(1 - pop) * 20}px)` }}>
@@ -31,12 +37,15 @@ export const Outro: React.FC<{
         style={{
           fontSize: TYPE_SCALE.caption,
           fontWeight: 600,
-          color: COLORS.neutral,
           lineHeight: 1.3,
           padding: "0 80px",
         }}
       >
-        {caption}
+        {parts.map((part, i) => (
+          <span key={i} style={{ color: part.emphasized ? COLORS.emphasis : COLORS.neutral }}>
+            {part.text}
+          </span>
+        ))}
       </div>
     </div>
   );

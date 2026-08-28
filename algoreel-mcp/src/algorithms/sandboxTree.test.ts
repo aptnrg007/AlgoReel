@@ -4,7 +4,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 
-import { generateAndValidateTreeAlgorithm, GenerateAlgorithmError } from "./sandbox";
+import { generateAndValidateTreeAlgorithm } from "./sandboxTree";
+import { GenerateAlgorithmError } from "./sandboxCore";
 import { restoreDir, snapshotDir } from "./testGeneratedDirSnapshot";
 
 const GENERATED_TREE_DIR = join(dirname(fileURLToPath(import.meta.url)), "generated-tree");

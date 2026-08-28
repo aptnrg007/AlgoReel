@@ -1,6 +1,7 @@
 import { runAlgorithm } from "../src/algorithms";
 import type { StorySpec } from "../src/spec/types";
 import { applyOperation, buildCheckpoints, groupOperationsByBeat, INITIAL_STATE, type VisualState } from "./primitives/state";
+import { OUTRO_TIMING } from "./template/tokens";
 import { estimateBeatFrames, HOOK_DURATION_SEC } from "./timing";
 
 export interface Checkpoint {
@@ -71,7 +72,7 @@ export function buildTimeline(spec: StorySpec, fps: number): Timeline {
 
   const hookDurationInFrames = Math.round(HOOK_DURATION_SEC * fps);
   const outroText = outroBeat?.text ?? "";
-  const outroDurationInFrames = estimateBeatFrames(outroText, fps, { minSec: 3.5, maxSec: 8 });
+  const outroDurationInFrames = estimateBeatFrames(outroText, fps, OUTRO_TIMING);
 
   const totalDurationInFrames =
     hookDurationInFrames + steps.reduce((sum, s) => sum + s.durationInFrames, 0) + outroDurationInFrames;

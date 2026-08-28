@@ -1,12 +1,12 @@
 import React from "react";
 import { spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { COLORS, TYPE_SCALE } from "./tokens";
+import { COLORS, POP_SPRING_CONFIG, POP_SPRING_DURATION_FRAMES, TYPE_SCALE } from "./tokens";
 
 // 0–3s, full-bleed, always the same layout (PLAN.md §6).
 export const Hook: React.FC<{ text: string }> = ({ text }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const pop = spring({ frame, fps, config: { damping: 200 }, durationInFrames: 15 });
+  const pop = spring({ frame, fps, config: POP_SPRING_CONFIG, durationInFrames: POP_SPRING_DURATION_FRAMES });
 
   return (
     <div

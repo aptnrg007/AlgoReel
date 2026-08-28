@@ -1,5 +1,4 @@
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { bundle } from "@remotion/bundler";
 import { renderStill, selectComposition } from "@remotion/renderer";
@@ -7,9 +6,8 @@ import { renderStill, selectComposition } from "@remotion/renderer";
 import { buildTimeline } from "../../remotion/buildTimeline";
 import { pickSampleFrames } from "../../remotion/sampleFrames";
 import { FRAME } from "../../remotion/template/tokens";
+import { REMOTION_ENTRYPOINT, ROOT, VIDEO_COMPOSITION_ID } from "../config/paths";
 import type { StorySpec } from "../spec/types";
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
 export interface FrameImage {
   label: string;
@@ -25,7 +23,7 @@ export interface FrameImage {
 let bundlePromise: Promise<string> | null = null;
 function getServeUrl(): Promise<string> {
   if (!bundlePromise) {
-    bundlePromise = bundle({ entryPoint: join(ROOT, "remotion/index.ts") });
+    bundlePromise = bundle({ entryPoint: join(ROOT, REMOTION_ENTRYPOINT) });
   }
   return bundlePromise;
 }
@@ -51,7 +49,7 @@ function getServeUrl(): Promise<string> {
 export async function sampleFrames(spec: StorySpec): Promise<FrameImage[]> {
   const serveUrl = await getServeUrl();
   const inputProps = { spec };
-  const composition = await selectComposition({ serveUrl, id: "Video", inputProps, logLevel: "error" });
+  const composition = await selectComposition({ serveUrl, id: VIDEO_COMPOSITION_ID, inputProps, logLevel: "error" });
 
   const timeline = buildTimeline(spec, FRAME.fps);
   const samples = pickSampleFrames(timeline);

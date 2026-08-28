@@ -19,6 +19,21 @@ export const COLORS = {
 export const FONT_FAMILY =
   "'Helvetica Neue', Inter, Arial, sans-serif";
 
+// The one enter/exit pop transition (PLAN.md §6: "one enter, one exit, one
+// emphasis pop. Reuse everywhere.") — the spring's damping is shared by
+// every text/primitive pop-in (Hook, Outro, ArrayView, StructureView);
+// duration defaults to 15 frames but Caption.tsx intentionally uses a
+// quicker 12 (captions change more often, on a beat cadence, so a slower
+// pop would visibly lag behind the text).
+export const POP_SPRING_CONFIG = { damping: 200 } as const;
+export const POP_SPRING_DURATION_FRAMES = 15;
+
+// Shared between buildTimeline.ts (how long the outro sequence actually
+// runs) and server.ts's generate_voice-adjacent duration estimate — both
+// have to agree on this or the rendered outro and its planned duration
+// silently diverge.
+export const OUTRO_TIMING = { minSec: 3.5, maxSec: 8 } as const;
+
 export const TYPE_SCALE = {
   hook: 76,
   caption: 46,

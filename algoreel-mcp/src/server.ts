@@ -1,36 +1,32 @@
 #!/usr/bin/env node
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+import { join } from "node:path";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
 import { getAlgorithm, listAlgorithms, runAlgorithmByName } from "./algorithms/index";
-import { ensureAlgorithm, EnsureAlgorithmError } from "./algorithms/ensureAlgorithm";
-import { generateAndValidateAlgorithm, GenerateAlgorithmError } from "./algorithms/sandbox";
+import { ensureAlgorithm } from "./algorithms/ensureAlgorithm";
+import { generateAndValidateAlgorithm } from "./algorithms/sandboxArray";
 import type { Operation } from "./algorithms/types";
+import { ROOT } from "./config/paths";
+import { renderVideo } from "./mcp/renderVideo";
+import { SPEC_INPUT_SCHEMA, text, validateSpecOrRespond } from "./mcp/respond";
 import { splitPrimarySteps } from "./spec/beats";
 import { checkRender } from "./spec/checkRender";
 import { sampleFrames } from "./render/frameSampler";
 import { validateSpec } from "./spec/validate";
 import type { StorySpec } from "./spec/types";
-import { buildTimeline } from "../remotion/buildTimeline";
-import { FRAME } from "../remotion/template/tokens";
+import { FRAME, OUTRO_TIMING } from "../remotion/template/tokens";
 import { estimateBeatFrames, HOOK_DURATION_SEC } from "../remotion/timing";
-
-const execFileAsync = promisify(execFile);
 
 // This file is the MCP boundary described in PLAN.md §3: everything above
 // this line (src/algorithms, src/spec) is pure TypeScript with no LLM
 // involvement anywhere. This server exposes that engine as tools; it never
 // makes an algorithmic decision itself, only runs the deterministic code
 // and reports back.
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_DIR = join(ROOT, "out");
 const OPERATIONS_DIR = join(OUT_DIR, "operations");
 const PREVIEWS_DIR = join(OUT_DIR, "previews");
@@ -41,10 +37,6 @@ for (const dir of [OPERATIONS_DIR, PREVIEWS_DIR, FINAL_DIR, TMP_DIR]) {
 }
 
 const server = new McpServer({ name: "algoreel", version: "0.1.0" });
-
-function text(value: string, isError = false) {
-  return { content: [{ type: "text" as const, text: value }], isError };
-}
 
 server.registerTool(
   "list_algorithms",
@@ -68,7 +60,7 @@ server.registerTool(
   {
     description:
       "Check a full StorySpec (topic, algorithm, input, hook, narration, emphasis, complexity, youtube) for shape and semantic errors, without rendering anything. Call this before render_preview — it's free.",
-    inputSchema: { spec: z.record(z.string(), z.unknown()) },
+    inputSchema: SPEC_INPUT_SCHEMA,
   },
   async ({ spec }) => {
     const result = validateSpec(spec);
@@ -81,14 +73,12 @@ server.registerTool(
   {
     description:
       "Check whether a StorySpec will render into a watchable video — things validate_spec can't see because they're about layout and pacing, not spec shape: an array too wide for the frame, animation steps that get zero screen time, or a render whose real duration is far from targetDurationSec. Free, no render. Call this before render_preview.",
-    inputSchema: { spec: z.record(z.string(), z.unknown()) },
+    inputSchema: SPEC_INPUT_SCHEMA,
   },
   async ({ spec }) => {
-    const validation = validateSpec(spec);
-    if (!validation.valid) {
-      return text(JSON.stringify({ error: "spec is invalid, cannot check render", details: validation.errors }, null, 2), true);
-    }
-    const result = checkRender(spec as unknown as StorySpec);
+    const validated = validateSpecOrRespond(spec, "cannot check render");
+    if ("response" in validated) return validated.response;
+    const result = checkRender(validated.storySpec);
     return text(JSON.stringify(result, null, 2), !result.pass);
   },
 );
@@ -98,14 +88,12 @@ server.registerTool(
   {
     description:
       "Render 4-6 sample frames from a StorySpec as images, so you can visually check for clipped text or overlapping elements before paying for the real preview render (PLAN.md §7's Layer 2). Only check for those two structural problems, never whether it looks good — check_render already caught everything checkable without pixels. Call this only after check_render and validate_spec both pass.",
-    inputSchema: { spec: z.record(z.string(), z.unknown()) },
+    inputSchema: SPEC_INPUT_SCHEMA,
   },
   async ({ spec }) => {
-    const validation = validateSpec(spec);
-    if (!validation.valid) {
-      return text(JSON.stringify({ error: "spec is invalid, cannot sample frames", details: validation.errors }, null, 2), true);
-    }
-    const images = await sampleFrames(spec as unknown as StorySpec);
+    const validated = validateSpecOrRespond(spec, "cannot sample frames");
+    if ("response" in validated) return validated.response;
+    const images = await sampleFrames(validated.storySpec);
     return {
       content: images.flatMap((img) => [
         { type: "text" as const, text: `Frame ${img.frame} (${img.label}):` },
@@ -153,7 +141,10 @@ server.registerTool(
         });
         result = { operations: generated.operations, summary: generated.summary };
       } catch (err) {
-        const message = err instanceof GenerateAlgorithmError ? err.message : err instanceof Error ? err.message : String(err);
+        // GenerateAlgorithmError extends Error, so an X-then-Error double
+        // check here just repeats the same branch — this is the simpler
+        // equivalent, same message either way.
+        const message = err instanceof Error ? err.message : String(err);
         return text(JSON.stringify({ error: message }, null, 2), true);
       }
     } else if (algorithm) {
@@ -226,7 +217,9 @@ server.registerTool(
       const result = await ensureAlgorithm({ algorithm, description, structure });
       return text(JSON.stringify(result, null, 2));
     } catch (err) {
-      const message = err instanceof EnsureAlgorithmError ? err.message : err instanceof Error ? err.message : String(err);
+      // Same simplification as run_algorithm's codegen branch above:
+      // EnsureAlgorithmError extends Error, so both branches are identical.
+      const message = err instanceof Error ? err.message : String(err);
       return text(JSON.stringify({ error: message }, null, 2), true);
     }
   },
@@ -244,7 +237,7 @@ server.registerTool(
   async ({ narration }) => {
     const perBeatDurations: Record<string, number> = {};
     for (const beat of narration) {
-      const opts = beat.beat === "outro" ? { minSec: 3.5, maxSec: 8 } : undefined;
+      const opts = beat.beat === "outro" ? OUTRO_TIMING : undefined;
       perBeatDurations[beat.beat] = estimateBeatFrames(beat.text, FRAME.fps, opts) / FRAME.fps;
     }
     const totalSec = HOOK_DURATION_SEC + Object.values(perBeatDurations).reduce((a, b) => a + b, 0);
@@ -268,37 +261,21 @@ server.registerTool(
   {
     description:
       "Render a low-resolution, fast preview video from a full StorySpec. Validates the spec first (same checks as validate_spec) and fails without rendering if it's invalid.",
-    inputSchema: { spec: z.record(z.string(), z.unknown()) },
+    inputSchema: SPEC_INPUT_SCHEMA,
   },
   async ({ spec }) => {
-    const validation = validateSpec(spec);
-    if (!validation.valid) {
-      return text(JSON.stringify({ error: "spec is invalid, not rendering", details: validation.errors }, null, 2), true);
-    }
-    const storySpec = spec as unknown as StorySpec;
+    const validated = validateSpecOrRespond(spec, "not rendering");
+    if ("response" in validated) return validated.response;
+    const { storySpec } = validated;
 
-    const id = randomUUID().slice(0, 8);
-    const propsPath = join(TMP_DIR, `props-${id}.json`);
-    const outputPath = join(PREVIEWS_DIR, `preview-${id}.mp4`);
-    writeFileSync(propsPath, JSON.stringify({ spec: storySpec }));
-
-    const timeline = buildTimeline(storySpec, FRAME.fps);
-    const durationSec = Math.round((timeline.totalDurationInFrames / FRAME.fps) * 10) / 10;
-
-    try {
-      await execFileAsync(
-        "npx",
-        ["remotion", "render", "remotion/index.ts", "Video", outputPath, `--props=${propsPath}`, "--scale=0.5"],
-        { cwd: ROOT, maxBuffer: 20 * 1024 * 1024, timeout: 180_000 },
-      );
-    } catch (err) {
-      const stderr = err && typeof err === "object" && "stderr" in err ? String((err as { stderr: unknown }).stderr) : String(err);
-      return text(JSON.stringify({ error: "render failed", details: stderr.slice(-4000) }, null, 2), true);
+    const result = await renderVideo(storySpec, { tmpDir: TMP_DIR, outputDir: PREVIEWS_DIR, filenamePrefix: "preview", scale: 0.5, timeoutMs: 180_000 });
+    if (!result.ok) {
+      return text(JSON.stringify({ error: "render failed", details: result.error }, null, 2), true);
     }
 
     return text(
       JSON.stringify(
-        { videoPath: outputPath, durationSec, targetDurationSec: storySpec.targetDurationSec },
+        { videoPath: result.videoPath, durationSec: result.durationSec, targetDurationSec: storySpec.targetDurationSec },
         null,
         2,
       ),
@@ -311,43 +288,26 @@ server.registerTool(
   {
     description:
       "Render the real, full-resolution video from a validated StorySpec — the actual publishable asset, not a fast preview. Validates the spec first (same checks as validate_spec) and fails without rendering if it's invalid. Slower than render_preview; only call this once check_render/validate_spec/sample_frames are all clean.",
-    inputSchema: { spec: z.record(z.string(), z.unknown()) },
+    inputSchema: SPEC_INPUT_SCHEMA,
   },
   async ({ spec }) => {
-    const validation = validateSpec(spec);
-    if (!validation.valid) {
-      return text(JSON.stringify({ error: "spec is invalid, not rendering", details: validation.errors }, null, 2), true);
+    const validated = validateSpecOrRespond(spec, "not rendering");
+    if ("response" in validated) return validated.response;
+    const { storySpec } = validated;
+
+    // No scale option, unlike render_preview — full 1080x1920 resolution,
+    // since this is the actual publishable asset. Longer timeout than
+    // render_preview's for the same reason (roughly 4x the pixels of a
+    // --scale=0.5 preview).
+    const result = await renderVideo(storySpec, { tmpDir: TMP_DIR, outputDir: FINAL_DIR, filenamePrefix: "final", timeoutMs: 300_000 });
+    if (!result.ok) {
+      return text(JSON.stringify({ error: "render failed", details: result.error }, null, 2), true);
     }
-    const storySpec = spec as unknown as StorySpec;
-
-    const id = randomUUID().slice(0, 8);
-    const propsPath = join(TMP_DIR, `props-${id}.json`);
-    const outputPath = join(FINAL_DIR, `final-${id}.mp4`);
-    writeFileSync(propsPath, JSON.stringify({ spec: storySpec }));
-
-    const timeline = buildTimeline(storySpec, FRAME.fps);
-    const durationSec = Math.round((timeline.totalDurationInFrames / FRAME.fps) * 10) / 10;
-
-    try {
-      // No --scale flag, unlike render_preview — full 1080x1920
-      // resolution, since this is the actual publishable asset. Longer
-      // timeout than render_preview's for the same reason (roughly 4x
-      // the pixels of a --scale=0.5 preview).
-      await execFileAsync(
-        "npx",
-        ["remotion", "render", "remotion/index.ts", "Video", outputPath, `--props=${propsPath}`],
-        { cwd: ROOT, maxBuffer: 20 * 1024 * 1024, timeout: 300_000 },
-      );
-    } catch (err) {
-      const stderr = err && typeof err === "object" && "stderr" in err ? String((err as { stderr: unknown }).stderr) : String(err);
-      return text(JSON.stringify({ error: "render failed", details: stderr.slice(-4000) }, null, 2), true);
-    }
-
-    const sizeBytes = statSync(outputPath).size;
+    const sizeBytes = statSync(result.videoPath).size;
 
     return text(
       JSON.stringify(
-        { videoPath: outputPath, durationSec, targetDurationSec: storySpec.targetDurationSec, sizeBytes },
+        { videoPath: result.videoPath, durationSec: result.durationSec, targetDurationSec: storySpec.targetDurationSec, sizeBytes },
         null,
         2,
       ),

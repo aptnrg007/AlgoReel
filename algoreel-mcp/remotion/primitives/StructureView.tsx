@@ -1,7 +1,7 @@
 import React from "react";
 import { spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { LayoutKind } from "../../src/algorithms/types";
-import { COLORS, STRUCT, TYPE_SCALE } from "../template/tokens";
+import { COLORS, POP_SPRING_CONFIG, POP_SPRING_DURATION_FRAMES, STRUCT, TYPE_SCALE } from "../template/tokens";
 import { computeLayout, type LayoutResult } from "./layout";
 import { edgeKey, type VisualState } from "./state";
 
@@ -89,7 +89,7 @@ function legendPosition(positions: LayoutResult["positions"], nodeIds: string[])
 export const StructureView: React.FC<{ state: VisualState }> = ({ state }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const pop = spring({ frame, fps, config: { damping: 200 }, durationInFrames: 15 });
+  const pop = spring({ frame, fps, config: POP_SPRING_CONFIG, durationInFrames: POP_SPRING_DURATION_FRAMES });
 
   const layout = state.structLayout;
   if (!layout || state.structNodes.length === 0) return null;
