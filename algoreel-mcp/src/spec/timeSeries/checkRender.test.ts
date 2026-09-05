@@ -87,6 +87,36 @@ test("end-value-label-too-wide never fires for 2+ series (no end-value label is 
   assert.equal(codes(result.failures).includes("end-value-label-too-wide"), false);
 });
 
+test("a well-placed annotation on the committed demo spec stays clean", () => {
+  const spec: TimeSeriesSpec = {
+    ...GDP_DEMO,
+    series: [{ ...GDP_DEMO.series[0]!, annotations: [{ index: 4, label: "Reforms take hold" }] }],
+  };
+  const result = checkTimeSeriesRender(spec, 20);
+  assert.equal(result.pass, true);
+  assert.equal(codes(result.failures).includes("annotation-label-too-wide"), false);
+});
+
+test("annotation-label-too-wide fires for a long label at the first point (would overflow the left edge)", () => {
+  const spec: TimeSeriesSpec = {
+    ...GDP_DEMO,
+    series: [{ ...GDP_DEMO.series[0]!, annotations: [{ index: 0, label: "A".repeat(80) }] }],
+  };
+  const result = checkTimeSeriesRender(spec, 20);
+  assert.equal(result.pass, false);
+  assert.ok(codes(result.failures).includes("annotation-label-too-wide"));
+});
+
+test("annotation-label-too-wide fires for a long label at the last point (would overflow the right edge)", () => {
+  const spec: TimeSeriesSpec = {
+    ...GDP_DEMO,
+    series: [{ ...GDP_DEMO.series[0]!, annotations: [{ index: 7, label: "A".repeat(80) }] }],
+  };
+  const result = checkTimeSeriesRender(spec, 20);
+  assert.equal(result.pass, false);
+  assert.ok(codes(result.failures).includes("annotation-label-too-wide"));
+});
+
 test("duration-too-short fires below the 1s minimum", () => {
   const result = checkTimeSeriesRender(GDP_DEMO, 0.5);
   assert.equal(result.pass, false);

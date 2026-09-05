@@ -14,9 +14,21 @@ export interface TimeSeriesYAxis {
   unit?: string;
 }
 
+// A caller-supplied (never agent-invented at render time) callout on one
+// specific point — PLAN.md Phase 9 step 3: an agent may explain a finding,
+// never invent one. `index` is typically chosen deterministically (see
+// src/spec/detectStandout.ts's detectStandoutIndex), and `label` is
+// always plain data-derived text, whether templated or human-written —
+// never something the renderer decides on its own.
+export interface TimeSeriesAnnotation {
+  index: number;
+  label: string;
+}
+
 export interface TimeSeries {
   name: string;
   values: number[];
+  annotations?: TimeSeriesAnnotation[];
 }
 
 export interface TimeSeriesSpec {

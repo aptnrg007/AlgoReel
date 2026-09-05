@@ -144,6 +144,25 @@ export const TimeSeriesView: React.FC<{ spec: TimeSeriesSpec; progress: number }
                     {formatValue(s.values[currentIndex]!)}
                   </text>
                 )}
+                {/* Deterministic callouts (PLAN.md Phase 9 step 3) — never
+                    invented by this component, only drawn once the point
+                    they describe has actually been revealed. A ring
+                    highlight + centered label above, geometry mirrored
+                    exactly by checkTimeSeriesRender's annotationChecks. */}
+                {(s.annotations ?? [])
+                  .filter((a) => a.index < revealed)
+                  .map((a) => {
+                    const ax = xForIndex(a.index, n);
+                    const ay = yForValue(s.values[a.index]!, domain);
+                    return (
+                      <g key={`annotation-${a.index}`}>
+                        <circle cx={ax} cy={ay} r={CHART.pointRadius + 6} fill="none" stroke={color} strokeWidth={2} />
+                        <text x={ax} y={ay - CHART.pointRadius - 16} fill={COLORS.neutral} fontSize={LABEL_FONT_SIZE} fontWeight={700} textAnchor="middle">
+                          {a.label}
+                        </text>
+                      </g>
+                    );
+                  })}
               </g>
             );
           })}

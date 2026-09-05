@@ -10,6 +10,7 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 
 import { renderVideo } from "../mcp/renderVideo";
 import { toTimeSeriesVideoPlan } from "../plan/fromTimeSeriesSpec";
+import { autoAnnotateStandout } from "../spec/timeSeries/autoAnnotate";
 import { checkTimeSeriesRender } from "../spec/timeSeries/checkRender";
 import { parseCsvToTimeSeriesSpec } from "../spec/timeSeries/fromCsv";
 import type { TimeSeriesSpec } from "../spec/timeSeries/types";
@@ -17,14 +18,20 @@ import { validateTimeSeriesSpec } from "../spec/timeSeries/validate";
 import { ROOT } from "../config/paths";
 
 const USAGE =
-  'usage: renderTimeSeries.ts <path-to-spec.json | path-to-data.csv> [--duration=20] [--out=path.mp4]\n' +
-  "  CSV input additionally requires: --title=... --x-label=... --y-label=... [--y-unit=...]";
+  'usage: renderTimeSeries.ts <path-to-spec.json | path-to-data.csv> [--duration=20] [--out=path.mp4] [--auto-annotate]\n' +
+  "  CSV input additionally requires: --title=... --x-label=... --y-label=... [--y-unit=...]\n" +
+  "  --auto-annotate calls out each series' single largest real move (a deterministic label, not agent-written prose)";
 
 function parseFlags(argv: string[]): Record<string, string> {
   const flags: Record<string, string> = {};
   for (const arg of argv) {
-    const match = arg.match(/^--([^=]+)=(.*)$/);
-    if (match) flags[match[1]!] = match[2]!;
+    const withValue = arg.match(/^--([^=]+)=(.*)$/);
+    if (withValue) {
+      flags[withValue[1]!] = withValue[2]!;
+      continue;
+    }
+    const boolean = arg.match(/^--(.+)$/);
+    if (boolean) flags[boolean[1]!] = "true";
   }
   return flags;
 }
@@ -84,6 +91,18 @@ async function main(): Promise<void> {
     return;
   }
   const spec = candidate as TimeSeriesSpec;
+
+  // Deterministic only — computes an index and a templated label from the
+  // real data, same as validateTimeSeriesSpec/checkTimeSeriesRender do for
+  // everything else. Never touches a series that already has its own
+  // caller-supplied annotations.
+  if (flags["auto-annotate"] !== undefined) {
+    spec.series = spec.series.map((s) => {
+      if (s.annotations && s.annotations.length > 0) return s;
+      const auto = autoAnnotateStandout(s);
+      return auto ? { ...s, annotations: [auto] } : s;
+    });
+  }
 
   const targetDurationSec = Number(flags.duration ?? "20");
   if (!Number.isFinite(targetDurationSec) || targetDurationSec <= 0) {

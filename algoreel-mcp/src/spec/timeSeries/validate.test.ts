@@ -74,3 +74,32 @@ test("accepts string x-axis values (categorical, not just years)", () => {
   });
   assert.equal(result.valid, true);
 });
+
+test("accepts a well-formed annotation", () => {
+  const spec = { ...VALID, series: [{ ...VALID.series[0]!, annotations: [{ index: 4, label: "Post-liberalization surge" }] }] };
+  const result = validateTimeSeriesSpec(spec);
+  assert.equal(result.valid, true);
+});
+
+test("rejects an annotation index past the end of xAxis", () => {
+  const spec = { ...VALID, series: [{ ...VALID.series[0]!, annotations: [{ index: 8, label: "out of range" }] }] };
+  const result = validateTimeSeriesSpec(spec);
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join("\n"), /only has 8 point\(s\)/);
+});
+
+test("rejects two annotations on the same index", () => {
+  const spec = {
+    ...VALID,
+    series: [{ ...VALID.series[0]!, annotations: [{ index: 3, label: "a" }, { index: 3, label: "b" }] }],
+  };
+  const result = validateTimeSeriesSpec(spec);
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join("\n"), /more than one annotation at the same index/);
+});
+
+test("rejects an annotation with an empty label", () => {
+  const spec = { ...VALID, series: [{ ...VALID.series[0]!, annotations: [{ index: 0, label: "" }] }] };
+  const result = validateTimeSeriesSpec(spec);
+  assert.equal(result.valid, false);
+});

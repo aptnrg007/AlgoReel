@@ -41,6 +41,7 @@ export function checkTimeSeriesRender(spec: TimeSeriesSpec, targetDurationSec: n
     ...xAxisLabelChecks(spec),
     ...yAxisLabelChecks(spec),
     ...endValueLabelChecks(spec),
+    ...annotationChecks(spec),
     ...durationChecks(spec, targetDurationSec),
   ];
   return { pass: !failures.some((f) => f.severity === "error"), failures };
@@ -144,6 +145,45 @@ function endValueLabelChecks(spec: TimeSeriesSpec): Check[] {
           `series "${spec.series[0]!.name}"'s value at x=${spec.xAxis.values[worst.index]} formats as ` +
           `"${worst.label}", whose label would overflow the frame by an estimated ${worst.overflow.toFixed(0)}px ` +
           `when that point is the current lead. Consider a yAxis.unit that produces shorter numbers.`,
+      },
+    ];
+  }
+  return [];
+}
+
+// TimeSeriesView.tsx draws an annotation's label centered (text-anchor
+// "middle") above its point — an svg-absolute x of
+// `marginLeft + xForIndex(index, n)`, needing half its estimated width of
+// clearance on both sides of the full svg canvas
+// (`marginLeft + CHART.width + rightLabelSpace`). Checked per point, not
+// just the two ends, since a wide label anywhere near either edge can
+// overflow even though the DSA-style "check only the extremes" heuristic
+// wouldn't catch it.
+function annotationChecks(spec: TimeSeriesSpec): Check[] {
+  const n = spec.xAxis.values.length;
+  const svgWidth = CHART.marginLeft + CHART.width + CHART.rightLabelSpace;
+
+  let worst: { seriesName: string; index: number; overflow: number; label: string } | null = null;
+  for (const s of spec.series) {
+    for (const a of s.annotations ?? []) {
+      if (a.index >= n) continue; // already a validate_spec error; nothing to check geometrically
+      const halfWidth = estimateTextWidth(a.label, LABEL_FONT_SIZE) / 2;
+      const absoluteX = CHART.marginLeft + xForIndex(a.index, n);
+      const overflow = Math.max(halfWidth - absoluteX, absoluteX + halfWidth - svgWidth);
+      if (overflow > 0 && (!worst || overflow > worst.overflow)) {
+        worst = { seriesName: s.name, index: a.index, overflow, label: a.label };
+      }
+    }
+  }
+
+  if (worst) {
+    return [
+      {
+        severity: "error",
+        code: "annotation-label-too-wide",
+        message:
+          `series "${worst.seriesName}"'s annotation "${worst.label}" at x=${spec.xAxis.values[worst.index]} would ` +
+          `overflow the frame by an estimated ${worst.overflow.toFixed(0)}px. Use a shorter label.`,
       },
     ];
   }

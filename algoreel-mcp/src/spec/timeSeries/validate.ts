@@ -32,6 +32,17 @@ function semanticErrors(spec: TimeSeriesSpec): string[] {
         `series "${s.name}" has ${s.values.length} value(s) but xAxis has ${n} — every series must have exactly one value per x-axis point`,
       );
     }
+
+    const indices = (s.annotations ?? []).map((a) => a.index);
+    for (const index of indices) {
+      if (index >= n) {
+        errors.push(`series "${s.name}" has an annotation at index ${index}, but xAxis only has ${n} point(s) (0-${n - 1})`);
+      }
+    }
+    const duplicateIndices = [...new Set(indices.filter((i, pos) => indices.indexOf(i) !== pos))];
+    if (duplicateIndices.length > 0) {
+      errors.push(`series "${s.name}" has more than one annotation at the same index (${duplicateIndices.join(", ")}) — one label per point`);
+    }
   }
 
   const names = spec.series.map((s) => s.name);

@@ -1093,18 +1093,42 @@ Planned, in priority order:
    actual `qwen3:8b`, not injected deps) both closed the full loop to a
    real rendered mp4. 244/244 tests pass.
 
-3. **Deterministic event annotation**, for `time_series` first
-   (extends to `bar_race` once it exists). A pure function of the
-   already-computed series data — largest single-step `|Δvalue|` or
-   `|Δvalue / value|`, same "pure function, no render" discipline as every
-   `checkRender.ts` — flags *which* x-axis index is the standout point.
-   `TimeSeriesSpec` grows an optional `annotations` field (`{index, label}`)
-   that a planner (or a human) can fill in with the *sentence*; if absent,
-   the deterministic detector proposes the index and a caller (a future
-   narration step) supplies the label. The renderer draws a marker + label
-   at that point — never picks the point itself from prose. This is the
-   concrete mechanism for the "LLM explains, code detects" split the
-   review itself proposed.
+3. **Deterministic event annotation (done for `time_series`; `bar_race`
+   still open).** New `src/spec/detectStandout.ts`'s `detectStandoutIndex`
+   is a video-type-agnostic pure function (lives outside any one type's
+   own directory, same precedent as `textBox.ts`) — largest single-step
+   `|Δvalue / previous value|` in a plain `number[]`, skipping any
+   zero-base transition where relative change is undefined. `TimeSeries`
+   (one series, not the whole spec — different series can have different
+   standout moments) grows an optional `annotations: {index, label}[]`
+   field: `validateTimeSeriesSpec` checks index bounds and rejects two
+   annotations on the same point; `checkTimeSeriesRender` gained
+   `annotationChecks`, checking every annotation's label width against the
+   real svg geometry (not just the two ends, unlike the DSA-style
+   "check the extremes" heuristic — a wide label anywhere near either edge
+   can overflow) since `TimeSeriesView.tsx` centers each label above its
+   point; the view only draws an annotation once its point has actually
+   been revealed, never earlier.
+
+   `label` stays 100% caller-supplied — nothing in the detector or the
+   renderer ever writes prose. New `src/spec/timeSeries/autoAnnotate.ts`
+   is a convenience default in the same spirit: `detectStandoutIndex` plus
+   a fixed, deterministic template (`"Sharpest increase: 89%"`, the real
+   percent change formatted into a sentence, not written by a model) —
+   wired into `renderTimeSeries.ts` as `--auto-annotate`. This is
+   explicitly *not* an agent explaining a finding (no narration step
+   exists for `time_series` yet); it's a template filling in real
+   arithmetic, honest about being exactly that and no more.
+
+   *Exit, met:* the demo GDP spec with `--auto-annotate` correctly picked
+   out the real 89% jump (900→1700, 2005→2010) — confirmed live by
+   rendering and looking at three frames: the annotation absent before its
+   point is revealed, present and correctly positioned once revealed (a
+   ring highlight + centered label, no overlap with the line or axes), and
+   still present at the final frame. 260/260 tests pass. `bar_race`'s own
+   extension (annotating a standout *entity*, not just a standout *point*
+   in one series — a genuinely different question) is deliberately left
+   for its own pass rather than bolted on here.
 
 4. **Real data acquisition — one source, one indicator family, on
    purpose.** Explicitly *not* "wire up World Bank + FRED + OWID + IMF" —

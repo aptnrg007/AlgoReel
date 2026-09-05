@@ -18,6 +18,14 @@ export const timeSeriesSchema = z.object({
       z.object({
         name: z.string().min(1),
         values: z.array(z.number()),
+        annotations: z
+          .array(
+            z.object({
+              index: z.number().int().nonnegative(),
+              label: z.string().min(1),
+            }),
+          )
+          .optional(),
       }),
     )
     .min(1),

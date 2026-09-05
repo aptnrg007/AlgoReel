@@ -676,3 +676,26 @@ Following the phased plan in `PLAN.md` §9:
   two mid-transitions, end), the CSV and JSON CLI paths, and a real
   three-way classification against actual `qwen3:8b` (not injected
   deps) all closing the loop to a real rendered mp4. 244/244 tests pass.
+
+- **Phase 9, step 3 — deterministic event annotation, for `time_series`.**
+  New `src/spec/detectStandout.ts` is a pure, video-type-agnostic function
+  finding the single-step transition with the largest relative change in
+  a plain `number[]` — the "detect" half of PLAN.md's rule that an agent
+  may explain a finding but never invent one. `TimeSeries` (per-series,
+  since different series can have different standout moments) gained an
+  optional `annotations` field, checked for index bounds and duplicate
+  indices (`validateTimeSeriesSpec`) and for real label-overflow geometry
+  against the exact svg coordinates `TimeSeriesView.tsx` draws at
+  (`checkTimeSeriesRender`'s new `annotationChecks`) — the view only
+  draws an annotation once its point has actually been revealed. New
+  `autoAnnotate.ts` wires the detector to a fixed, deterministic label
+  template (real percent change formatted as a sentence, not model-written
+  prose) behind a new `--auto-annotate` CLI flag.
+
+  Verified live: the demo GDP spec with `--auto-annotate` correctly
+  picked out the real 89% jump (900→1700, 2005→2010) — confirmed by
+  rendering and inspecting three frames directly: absent before its point
+  is revealed, correctly positioned once revealed (no overlap with the
+  line or axes), still present at the end. 260/260 tests pass. `bar_race`'s
+  own extension (a standout *entity*, not just a standout point in one
+  series) is left for its own pass.
