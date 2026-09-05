@@ -834,6 +834,114 @@ Still not done: MCP tool wiring for `time_series` (the CLI paths — both
 registry (Phase 5), and real data acquisition (deliberately out of scope
 per §15 — supplied data only).
 
+**Step 5 (done) — the `VIDEO_TYPES` registry, and proving it on the two
+types that already exist rather than adding a third.** Before this step,
+"which video type" was answered by two independent switches that had to
+agree by construction, not by the type system: `Video.tsx`'s render
+dispatch and (the now-deleted) `videoPlanDuration.ts`'s duration dispatch.
+New `remotion/videoTypes.ts` collapses both into one lookup table
+(`VIDEO_TYPES: { [K in VideoType]: VideoTypeDefinition<...> }`, per §11's
+original sketch) with a third field neither switch had: `validate`. Adding
+a video type now means adding one entry here — nothing in `Video.tsx` or
+`Root.tsx` changes, which is the concrete meaning of "prove the mechanism
+before adding a third type" (§28): the registry only earns that claim once
+`Video.tsx` and `Root.tsx`'s duration calculation are both pure lookups
+against it, not switches that happen to produce the same answer as it.
+`AlgorithmVideo`/`TimeSeriesVideo` both changed to take the whole plan
+(`{plan}`) rather than their payload unpacked by the caller
+(`{spec}`/`{spec, targetDurationSec}`), so each slots into the registry's
+one shared `render` signature directly — no adapter wrapper components
+needed. `validateTimeSeriesPlan` combines `validateTimeSeriesSpec` (shape)
+and `checkTimeSeriesRender` (geometry, needs the plan's
+`targetDurationSec`) into the one `{valid, errors}` result the registry's
+contract expects — the same two checks `renderTimeSeries.ts`'s CLI already
+runs in sequence, now also available as a single call for a future
+videoType-agnostic caller (a generic MCP tool, say) that doesn't need the
+warning/error distinction the CLI's own UX still preserves by calling the
+two functions directly itself.
+
+One real, known TypeScript limitation, documented rather than routed
+around: `VIDEO_TYPES[plan.videoType]` can't be called back with `plan`
+directly — a lookup table of per-variant functions doesn't distribute a
+union call the way a switch's own case-narrowing does, so
+`definitionFor()` widens the result to `VideoTypeDefinition<VideoPlan>`
+with one explicit, commented cast. Safe by construction (`plan` only ever
+reaches the definition its own `videoType` selected), and deliberately the
+*only* unsafe cast in this file — not a way to skip real type-checking
+anywhere else in the multi-video-type code.
+
+Verified live: `remotion/videoTypes.test.ts` (8 new tests) checks the
+registry actually reaches the right implementation per video type, not
+just that each implementation works alone — `calculateDurationInFrames`
+matches `buildTimeline`'s real duration for `dsa` vs. a bare
+duration-to-frames conversion for `time_series`, `validateVideoPlan`
+fails a `dsa` plan on an unknown algorithm and a `time_series` plan on
+both a schema error and a geometry error, `renderComponentFor` returns the
+right component by reference. Then re-ran three real Remotion renders
+after the `Video.tsx`/`Root.tsx` refactor to confirm the actual rendering
+behavior didn't just type-check but still produces real video: a `dsa`
+demo composition, the `TimeSeriesDemo` composition, and the generic
+`Video` composition with a hand-built plan-shaped props file (the exact
+path `renderVideo.ts` uses) — all three unchanged from before the
+refactor. 188/188 tests pass, `tsc --noEmit` clean.
+
+### How to add a new video type
+
+The concrete recipe, generalized from what `dsa` and `time_series` each
+actually needed — every file below is a template to copy, not prose to
+improvise from:
+
+1. **A spec contract.** `src/spec/<type>/types.ts` — a plain TypeScript
+   interface, no fields borrowed from `StorySpec` or `TimeSeriesSpec` "just
+   in case" (§22's "avoid a universal VisualState" — keep this type's state
+   genuinely its own).
+2. **A schema + validator.** `src/spec/<type>/schema.ts` (zod, mirrors the
+   interface) and `src/spec/<type>/validate.ts` (`validate<Type>Spec`):
+   shape first via zod, then a `semanticErrors` pass for whatever zod can't
+   express (cross-field agreement, uniqueness). Cheap, no render, no
+   Remotion import.
+3. **A deterministic render-geometry check**, if the type has any layout
+   that could overflow/overlap — `src/spec/<type>/checkRender.ts`
+   (`check<Type>Render`), a pure function of the spec (+ duration, if the
+   spec doesn't carry one) using the *exact* geometry constants the
+   renderer draws with. Not every type needs this on day one — `time_series`
+   didn't get one until its own step 3 — but it belongs in `src/spec/<type>/`
+   when it exists, not folded into the DSA `checkRender.ts`.
+4. **A pure layout module**, if the type renders anything data-driven.
+   `remotion/primitives/<type>Layout.ts` — no React/Remotion imports, so
+   step 3's checker and the renderer can share the exact same math instead
+   of two definitions that could drift.
+5. **The view + composition.** `remotion/primitives/<Type>View.tsx` (the
+   actual visual, taking spec + whatever varies per frame) and
+   `remotion/<Type>Video.tsx` (the Remotion composition — `useCurrentFrame`/
+   `useVideoConfig` live here and nowhere else in the type's own code —
+   taking `{ plan: <Type>VideoPlan }`, the one shared signature every
+   `render` entry in the registry uses).
+6. **Extend the type-level union.** Add the new literal to `VideoType` and
+   a `<Type>VideoPlan` interface to `src/plan/types.ts` — wrapping the new
+   spec under `payload`, same as `DsaVideoPlan`/`TimeSeriesVideoPlan` do.
+7. **Register it.** One new entry in `VIDEO_TYPES`
+   (`remotion/videoTypes.ts`): `validate`, `calculateDurationInFrames`,
+   `render`. This is the only place `Video.tsx` or `Root.tsx` would ever
+   need to change for a type that didn't register here — and per this
+   step's own registry, they don't.
+8. **A demo spec + a real render.** A demo file under
+   `specs/<type>/` (its own subdirectory — `beatBudget.test.ts`'s
+   non-recursive scan assumes every top-level `specs/*.json` is a
+   `StorySpec`) and a `render:<type>-demo` npm script. Prove it the way
+   every step in this phase was proven: render it for real and look at the
+   actual frames, don't trust the types alone.
+9. **Teach the planner**, last. `selectVideoType.ts` needs a new
+   deterministic signal (structural, vocabulary, or both) for the new
+   type, and `select-video-type.yaml`'s instructions need the new type
+   named in its prompt — otherwise every request for it silently falls
+   through to whichever of the existing types the model guesses is
+   closest.
+
+What deliberately isn't on this list: touching `Video.tsx`, `Root.tsx`, or
+any other video type's own files. If any of those need to change to add a
+type, the registry hasn't actually generalized — that's the bar step 5 set.
+
 ---
 
 ## 10. Algorithm order

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { FRAME } from "../../remotion/template/tokens";
-import { calculateDurationInFrames } from "../../remotion/videoPlanDuration";
+import { calculateDurationInFrames } from "../../remotion/videoTypes";
 import { REMOTION_ENTRYPOINT, ROOT, VIDEO_COMPOSITION_ID } from "../config/paths";
 import type { VideoPlan } from "../plan/types";
 

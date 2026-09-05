@@ -1,6 +1,6 @@
 import React from "react";
 import { AbsoluteFill, Sequence, Series, useVideoConfig } from "remotion";
-import type { StorySpec } from "../src/spec/types";
+import type { DsaVideoPlan } from "../src/plan/types";
 import { buildTimeline } from "./buildTimeline";
 import { inputShape } from "../src/spec/inputShape";
 import { ArrayView } from "./primitives/ArrayView";
@@ -15,8 +15,12 @@ import { Outro } from "./template/Outro";
 // spec.narration and spec.hook; everything about layout, timing, and
 // correctness of the algorithm state is decided here. Moved out of
 // Video.tsx (now a videoType router) unchanged — this is exactly the
-// dsa-specific renderer the router dispatches to.
-export const AlgorithmVideo: React.FC<{ spec: StorySpec }> = ({ spec }) => {
+// dsa-specific renderer the router dispatches to. Takes the whole plan
+// (not just its payload) so it slots directly into VIDEO_TYPES' registry
+// (videoTypes.ts), whose `render` field is one shared `{plan}` signature
+// across every video type.
+export const AlgorithmVideo: React.FC<{ plan: DsaVideoPlan }> = ({ plan }) => {
+  const spec = plan.payload;
   const { fps } = useVideoConfig();
   const timeline = buildTimeline(spec, fps);
   const VIEW_BY_SHAPE = { array: ArrayView, struct: StructureView } as const;

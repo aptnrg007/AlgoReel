@@ -788,3 +788,23 @@ still aren't codegen-covered — those stay hand-written.
   `select-algorithm.yaml`'s `max_tokens: 512`; confirmed live afterward.
   Still open: MCP tool wiring for `time_series` and the `VIDEO_TYPES`
   registry (Phase 5).
+
+- **Phase 8, step 5 — the `VIDEO_TYPES` registry, proven on the two types
+  that already exist.** Before this step, "which video type" was answered
+  by two independent switches (`Video.tsx`'s render dispatch, and a
+  duration-dispatch file) that had to agree by construction, not by the
+  type system. New `remotion/videoTypes.ts` collapses both into one lookup
+  table with a third field neither switch had — `validate`. Adding a video
+  type now means adding one entry here; `Video.tsx` and `Root.tsx` are
+  both pure lookups against it. `AlgorithmVideo`/`TimeSeriesVideo` both
+  changed to take the whole plan (`{plan}`) instead of an unpacked payload,
+  so each slots into the registry's one shared `render` signature with no
+  adapter needed. Verified live: 8 new tests confirm the registry reaches
+  the right implementation per type (not just that each implementation
+  works alone), then three real Remotion renders (a `dsa` demo, the
+  `time_series` demo, and the generic `Video` composition) confirmed the
+  actual rendering behavior survived the refactor unchanged. `PLAN.md` §9
+  Phase 8 step 5 has the full "how to add a new video type" recipe,
+  generalized from what `dsa`/`time_series` each actually needed.
+  188/188 tests pass. Still open: MCP tool wiring for `time_series` and
+  real data acquisition (deliberately out of scope — supplied data only).

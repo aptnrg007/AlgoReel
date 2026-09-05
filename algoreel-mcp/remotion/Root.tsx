@@ -13,7 +13,7 @@ import timeSeriesDemoSpec from "../specs/time-series/time-series-demo.json";
 import { toDsaVideoPlan } from "../src/plan/fromStorySpec";
 import { toTimeSeriesVideoPlan } from "../src/plan/fromTimeSeriesSpec";
 import type { VideoPlan } from "../src/plan/types";
-import { calculateDurationInFrames } from "./videoPlanDuration";
+import { calculateDurationInFrames } from "./videoTypes";
 import { FRAME } from "./template/tokens";
 import { Video } from "./Video";
 
