@@ -1131,29 +1131,58 @@ Planned, in priority order:
    for its own pass rather than bolted on here.
 
 4. **Real data acquisition — one source, one indicator family, on
-   purpose.** Explicitly *not* "wire up World Bank + FRED + OWID + IMF" —
-   that repeats Phase A's own early mistake of generalizing before one
-   case is proven. Confirmed live before committing to this at all: this
-   environment has real outbound network access, and the World Bank API
-   needs no auth or key —
-   `https://api.worldbank.org/v2/country/IN/indicator/NY.GDP.MKTP.CD?format=json&date=1990:2025`
-   returns `[metadata, [{date, value, country: {value}, indicator: {value}}, ...]]`,
-   confirmed against real India GDP figures. Scope: a `src/spec/timeSeries/fromWorldBank.ts`
-   (mirrors `fromCsv.ts`'s shape — deterministic TypeScript, no LLM
-   involved in the fetch or the parsing) that takes a country code +
-   indicator code + year range and returns a `TimeSeriesSpec`, called by
-   `planVideo.ts` only when the caller names a country/indicator
-   explicitly (an agent may pick *which* indicator/country the request
-   implies — a label decision — but the fetch and every number in the
-   result is the real HTTP response, unmodified). The source URL and
-   retrieval time get stamped into the `VideoPlan`'s `description` field
-   as provenance, so a viewer can trace every number back to where it
-   came from. *Exit:* `"GDP timelapse for Brazil"` with no CSV/JSON
-   attached produces a real render sourced from a live API call, and the
-   plan JSON shows exactly which URL supplied the numbers. Other sources
-   (FRED, OWID, UN) are explicitly future work, added one at a time, only
-   after this one is proven — same discipline as `structure: "graph"`
-   codegen only landing after `structure: "array"` was proven.
+   purpose (done).** Explicitly *not* "wire up World Bank + FRED + OWID +
+   IMF" — that repeats Phase A's own early mistake of generalizing before
+   one case is proven. New `src/spec/timeSeries/fromWorldBank.ts` (mirrors
+   `fromCsv.ts`'s shape) is deterministic TypeScript — no LLM in the fetch
+   or the parsing — split into a pure `parseWorldBankResponse` (unit
+   tested against canned responses: newest-first sorted to oldest-first,
+   real gaps (`value: null`) skipped rather than fabricated, a clear error
+   below 2 real points) and the actual `fetch` wrapper. `planVideo.ts`
+   only calls it when the caller names a country/indicator explicitly —
+   either `req.worldBank` directly, or (new) `src/plan/
+   extractWorldBankRequest.ts`, a deterministic whole-word keyword match
+   against a small, deliberately narrow country/indicator table (mirrors
+   `keywordMatchAlgorithm`'s own word-boundary discipline, guarding
+   against exactly the collision its own comment calls out — "us" would
+   match inside "russia" under a naive substring check). An agent may pick
+   *which* country/indicator a request implies — a label decision, same as
+   picking a video type — but the fetch and every number in the result is
+   the real HTTP response. The source URL and retrieval time get stamped
+   into the `VideoPlan`'s `description` as provenance.
+
+   **A real bug found by the test suite itself, not live rendering this
+   time:** the very first version's own existing "no data supplied" test
+   (`"show India's GDP from 1990 to 2025"`) started failing once
+   extraction landed — not because the code was wrong, but because that
+   exact phrase now legitimately triggers a real World Bank fetch, and
+   India's raw GDP (trillions of dollars) blew straight past
+   `checkTimeSeriesRender`'s label-width budget. Real, unscaled figures
+   from a live data source are exactly the kind of input this project's
+   geometry checks exist to catch — fixed by adding a `scale`/`yAxisUnit`
+   to `fromWorldBank.ts`'s options (GDP ÷1e9 → "USD billions", population
+   ÷1e6 → "millions" — a unit conversion, not a changed fact, the same
+   values the committed demo specs already express at this scale) and a
+   `scaleForIndicatorCode` reverse lookup so an indicator supplied by its
+   *code* (the CLI's `--world-bank-indicator` flag) gets the same sensible
+   default a keyword match would have. **A second gap, also caught by the
+   test suite:** an explicit `worldBank`-only request (no prompt/data/csv)
+   failed classification entirely, because `selectVideoType` didn't know
+   `worldBank` was a structural signal as unambiguous as `data`/`csv`
+   already are — fixed by teaching it that.
+
+   *Exit, met:* `"Create a video showing a GDP timelapse for Brazil"` with
+   no CSV/JSON attached, no explicit country/indicator — real extraction,
+   a real fetch (66 years, 1960-2025), correctly scaled — validated,
+   rendered, and the final frame inspected directly: the real 2015-2016
+   recession and 2025 recovery both visible, no clipped or overlapping
+   labels. The plan's `description` shows the exact source URL and
+   retrieval timestamp. The explicit `--world-bank-country`/
+   `--world-bank-indicator` CLI flags verified live too (Nigeria
+   population). 281/281 tests pass. Other sources (FRED, OWID, UN) are
+   explicitly future work, added one at a time, only after this one is
+   proven — same discipline as `structure: "graph"` codegen only landing
+   after `structure: "array"` was proven.
 
 5. **`timeline` (historical events) as a fourth video type** — lower
    priority than the above since it's mostly validating the registry

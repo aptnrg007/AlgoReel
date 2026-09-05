@@ -6,8 +6,10 @@ import type { VideoPlan } from "./types";
 import { checkTimeSeriesRender, minimumSufficientDurationSec } from "../spec/timeSeries/checkRender";
 import type { CsvParseOptions } from "../spec/timeSeries/fromCsv";
 import { parseCsvToTimeSeriesSpec } from "../spec/timeSeries/fromCsv";
+import { fetchWorldBankTimeSeries } from "../spec/timeSeries/fromWorldBank";
 import type { TimeSeriesSpec } from "../spec/timeSeries/types";
 import { validateTimeSeriesSpec } from "../spec/timeSeries/validate";
+import { extractWorldBankRequest, scaleForIndicatorCode } from "./extractWorldBankRequest";
 import { checkBarRaceRender, MIN_DURATION_SEC as BAR_RACE_MIN_DURATION_SEC } from "../spec/barRace/checkRender";
 import type { CsvParseOptions as BarRaceCsvParseOptions } from "../spec/barRace/fromCsv";
 import { parseCsvToBarRaceSpec } from "../spec/barRace/fromCsv";
@@ -42,6 +44,11 @@ export interface PlanVideoRequest {
   csv?: string;
   csvOptions?: CsvParseOptions;
   barRaceCsvOptions?: BarRaceCsvParseOptions;
+  // Real data acquisition, time_series only, deliberately scoped to one
+  // source (PLAN.md Phase 9 step 4) — an explicit override for precision;
+  // if omitted, planVideo tries extractWorldBankRequest(prompt) before
+  // giving up and demanding data/csv. Never fetched for dsa/bar_race.
+  worldBank?: { countryCode: string; indicatorCode: string; startYear?: number; endYear?: number; yAxisUnit?: string; scale?: number };
   // time_series/bar_race only — neither spec carries a duration of its
   // own (plan/types.ts's *VideoPlan comments).
   targetDurationSec?: number;
@@ -51,7 +58,10 @@ export interface PlanVideoRequest {
 export interface PlanVideoDeps extends SelectVideoTypeDeps {
   ensureSpec?: typeof ensureSpec;
   ensureSpecDeps?: EnsureSpecDeps;
+  fetchWorldBankTimeSeries?: typeof fetchWorldBankTimeSeries;
 }
+
+const DEFAULT_WORLD_BANK_START_YEAR = 1960;
 
 // The planner's full pipeline (PLAN.md §13-14): classify -> produce a
 // video-type-specific spec -> wrap it as a VideoPlan. Never generates
@@ -59,7 +69,7 @@ export interface PlanVideoDeps extends SelectVideoTypeDeps {
 // data/csv supplied is a clean, honest error, not a hallucinated dataset.
 export async function planVideo(req: PlanVideoRequest, deps: PlanVideoDeps = {}): Promise<VideoPlan> {
   const classification = await selectVideoType(
-    { prompt: req.prompt, data: req.data, csv: req.csv },
+    { prompt: req.prompt, data: req.data, csv: req.csv, worldBank: req.worldBank },
     { chooseVideoType: deps.chooseVideoType },
   );
 
@@ -77,21 +87,22 @@ export async function planVideo(req: PlanVideoRequest, deps: PlanVideoDeps = {})
     return toDsaVideoPlan(result.spec);
   }
 
-  if (!req.data && req.csv === undefined) {
-    throw new PlanVideoError(
-      `a ${classification.videoType} video needs data — this planner does not fetch external data itself (PLAN.md §15). ` +
-        "Supply it via `data` (a spec-shaped object) or `csv` (a CSV string, with the matching csvOptions field).",
-    );
-  }
-
   if (classification.videoType === "bar_race") {
+    if (!req.data && req.csv === undefined) {
+      throw new PlanVideoError(
+        "a bar_race video needs data — this planner does not fetch external data itself (PLAN.md §15). " +
+          "Supply it via `data` (a spec-shaped object) or `csv` (a CSV string, with barRaceCsvOptions).",
+      );
+    }
     return planBarRaceVideo(req);
   }
-  return planTimeSeriesVideo(req);
+  return planTimeSeriesVideo(req, deps);
 }
 
-async function planTimeSeriesVideo(req: PlanVideoRequest): Promise<VideoPlan> {
+async function planTimeSeriesVideo(req: PlanVideoRequest, deps: PlanVideoDeps): Promise<VideoPlan> {
   let candidate: unknown;
+  let provenanceDescription: string | undefined;
+
   if (req.csv !== undefined) {
     if (!req.csvOptions) {
       throw new PlanVideoError("csv input requires csvOptions: { title, xAxisLabel, yAxisLabel, yAxisUnit? }");
@@ -101,8 +112,43 @@ async function planTimeSeriesVideo(req: PlanVideoRequest): Promise<VideoPlan> {
     } catch (err) {
       throw new PlanVideoError(`could not parse csv: ${err instanceof Error ? err.message : String(err)}`);
     }
-  } else {
+  } else if (req.data !== undefined) {
     candidate = req.data;
+  } else {
+    // No data/csv supplied — try real data acquisition (PLAN.md Phase 9
+    // step 4) before giving up. The explicit `worldBank` field is tried
+    // first (precise, e.g. a country/indicator the fixed keyword table
+    // doesn't cover); extracting from the prompt is the fallback for a
+    // natural request like "GDP timelapse for Brazil".
+    const worldBank = req.worldBank ?? extractWorldBankRequest(req.prompt ?? "");
+    if (!worldBank) {
+      throw new PlanVideoError(
+        "a time_series video needs data — this planner does not fetch external data itself (PLAN.md §15) beyond " +
+          "the World Bank source it knows how to query. Supply `data`/`csv` directly, name a known country + " +
+          "indicator (e.g. \"GDP timelapse for Brazil\"), or pass `worldBank` explicitly.",
+      );
+    }
+    // A known indicator code still gets its sensible legible-scale
+    // default even when it arrived via the explicit `worldBank` field
+    // (e.g. the CLI's --world-bank-indicator flag) rather than a keyword
+    // match — the code is the same either way, so the same table applies.
+    const knownScale = scaleForIndicatorCode(worldBank.indicatorCode);
+    const fetchFn = deps.fetchWorldBankTimeSeries ?? fetchWorldBankTimeSeries;
+    let result;
+    try {
+      result = await fetchFn({
+        countryCode: worldBank.countryCode,
+        indicatorCode: worldBank.indicatorCode,
+        startYear: worldBank.startYear ?? DEFAULT_WORLD_BANK_START_YEAR,
+        endYear: worldBank.endYear ?? new Date().getFullYear(),
+        yAxisUnit: worldBank.yAxisUnit ?? knownScale.yAxisUnit,
+        scale: worldBank.scale ?? knownScale.scale,
+      });
+    } catch (err) {
+      throw new PlanVideoError(`could not fetch World Bank data: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    candidate = result.spec;
+    provenanceDescription = `Source: World Bank API (${result.sourceUrl}), retrieved ${result.retrievedAt}`;
   }
 
   const validation = validateTimeSeriesSpec(candidate);
@@ -132,7 +178,7 @@ async function planTimeSeriesVideo(req: PlanVideoRequest): Promise<VideoPlan> {
     throw new PlanVideoError(`supplied data fails check_render: ${errors.join("; ")}`);
   }
 
-  return toTimeSeriesVideoPlan(spec, { targetDurationSec, description: req.description });
+  return toTimeSeriesVideoPlan(spec, { targetDurationSec, description: req.description ?? provenanceDescription });
 }
 
 async function planBarRaceVideo(req: PlanVideoRequest): Promise<VideoPlan> {

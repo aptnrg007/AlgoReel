@@ -80,9 +80,11 @@ test("csv input without csvOptions is a clear PlanVideoError, not a crash", asyn
   });
 });
 
-test("a time-series request with no data or csv is a clear PlanVideoError, not a hallucinated dataset", async () => {
+test("a time-series request with no data/csv and no extractable World Bank request is a clear PlanVideoError, not a hallucinated dataset", async () => {
+  // Matches time-series vocabulary ("revenue growth") but names no known
+  // country/indicator, so extractWorldBankRequest can't fire either.
   await assert.rejects(
-    () => planVideo({ prompt: "show India's GDP from 1990 to 2025" }),
+    () => planVideo({ prompt: "show revenue growth over time" }),
     (err) => {
       assert.ok(err instanceof PlanVideoError);
       assert.match(err.message, /does not fetch external data/);
@@ -214,4 +216,68 @@ test("a too-short bar-race duration is repaired to the minimum, not rejected", a
   const plan = await planVideo({ data, targetDurationSec: 0.1 });
   assert.equal(plan.videoType, "bar_race");
   assert.ok(plan.targetDurationSec >= 1);
+});
+
+const CANNED_WORLD_BANK_SPEC = {
+  title: "Brazil: GDP (current US$)",
+  xAxis: { label: "Year", values: [1990, 2000, 2010] },
+  yAxis: { label: "GDP (current US$)", unit: "USD billions" },
+  series: [{ name: "Brazil", values: [461, 655, 2209] }],
+};
+
+test("a natural GDP-for-country request with no data/csv fetches from World Bank automatically", async () => {
+  let calledWith: unknown;
+  const plan = await planVideo(
+    { prompt: "Create a GDP timelapse for Brazil", targetDurationSec: 15 },
+    {
+      fetchWorldBankTimeSeries: async (opts) => {
+        calledWith = opts;
+        return { spec: CANNED_WORLD_BANK_SPEC, sourceUrl: "https://api.worldbank.org/v2/country/BR/indicator/NY.GDP.MKTP.CD?format=json", retrievedAt: "2026-01-01T00:00:00.000Z" };
+      },
+    },
+  );
+  assert.equal(plan.videoType, "time_series");
+  assert.deepEqual(plan.payload, CANNED_WORLD_BANK_SPEC);
+  assert.equal((calledWith as { countryCode: string }).countryCode, "BR");
+  assert.equal((calledWith as { indicatorCode: string }).indicatorCode, "NY.GDP.MKTP.CD");
+  // Provenance stamped into the plan's description, not silently dropped.
+  assert.match(plan.description ?? "", /World Bank API/);
+  assert.match(plan.description ?? "", /api\.worldbank\.org/);
+});
+
+test("an explicit worldBank field takes precedence and is used even without a matching prompt", async () => {
+  const plan = await planVideo(
+    { worldBank: { countryCode: "ZZ", indicatorCode: "SP.POP.TOTL" }, targetDurationSec: 15 },
+    {
+      fetchWorldBankTimeSeries: async (opts) => {
+        assert.equal(opts.countryCode, "ZZ");
+        assert.equal(opts.indicatorCode, "SP.POP.TOTL");
+        return { spec: CANNED_WORLD_BANK_SPEC, sourceUrl: "https://example.test/", retrievedAt: "2026-01-01T00:00:00.000Z" };
+      },
+    },
+  );
+  assert.equal(plan.videoType, "time_series");
+});
+
+test("an explicit description overrides World Bank provenance rather than being silently discarded", async () => {
+  const plan = await planVideo(
+    { prompt: "GDP timelapse for Brazil", description: "my own description", targetDurationSec: 15 },
+    { fetchWorldBankTimeSeries: async () => ({ spec: CANNED_WORLD_BANK_SPEC, sourceUrl: "https://example.test/", retrievedAt: "2026-01-01T00:00:00.000Z" }) },
+  );
+  assert.equal(plan.description, "my own description");
+});
+
+test("a World Bank fetch failure surfaces as a clear PlanVideoError, not an uncaught exception", async () => {
+  await assert.rejects(
+    () =>
+      planVideo(
+        { prompt: "GDP timelapse for Brazil" },
+        { fetchWorldBankTimeSeries: async () => { throw new Error("network unreachable"); } },
+      ),
+    (err) => {
+      assert.ok(err instanceof PlanVideoError);
+      assert.match(err.message, /could not fetch World Bank data/);
+      return true;
+    },
+  );
 });

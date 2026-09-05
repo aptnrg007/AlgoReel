@@ -699,3 +699,37 @@ Following the phased plan in `PLAN.md` §9:
   line or axes), still present at the end. 260/260 tests pass. `bar_race`'s
   own extension (a standout *entity*, not just a standout point in one
   series) is left for its own pass.
+
+- **Phase 9, step 4 — real data acquisition, scoped to the World Bank
+  API.** New `src/spec/timeSeries/fromWorldBank.ts` fetches real,
+  unmodified data (no LLM in the fetch or parsing), split into a pure,
+  unit-tested response parser and a thin fetch wrapper — real gaps
+  (`value: null`) are skipped, never fabricated. New `src/plan/
+  extractWorldBankRequest.ts` is a deterministic whole-word keyword match
+  against a small country/indicator table, mirroring `keywordMatchAlgorithm`'s
+  own word-boundary discipline (guards against "us" matching inside
+  "russia" the way a naive substring check would). `planVideo.ts` tries an
+  explicit `worldBank` field, then extraction from the prompt, before
+  giving up and demanding data/csv. Source URL and retrieval time get
+  stamped into the plan's `description` as provenance.
+
+  **Two real bugs, both caught by the test suite itself rather than live
+  rendering this time:** an existing "no data supplied" test started
+  failing once extraction landed, because its exact phrase now
+  legitimately triggers a real fetch — and India's raw GDP (trillions of
+  dollars) blew past the chart's label-width budget. Fixed by pre-scaling
+  known indicators to legible units (GDP ÷1e9 → "USD billions", the same
+  scale the committed demo specs already use — a unit conversion, not a
+  changed fact), with a reverse lookup so a caller supplying the raw
+  indicator code gets the same default a keyword match would. Separately,
+  an explicit `worldBank`-only request (no prompt/data/csv) failed
+  classification entirely, because `selectVideoType` didn't yet know
+  `worldBank` was as unambiguous a structural signal as `data`/`csv`.
+
+  Verified live end to end: `"Create a video showing a GDP timelapse for
+  Brazil"` with nothing else supplied — real extraction, a real 66-year
+  fetch, correctly scaled, rendered, and the final frame inspected
+  directly (the real 2015-2016 recession and 2025 recovery both visible,
+  no clipped or overlapping labels despite 66 real points). The explicit
+  `--world-bank-country`/`--world-bank-indicator` CLI flags verified live
+  too (Nigeria population). 281/281 tests pass.

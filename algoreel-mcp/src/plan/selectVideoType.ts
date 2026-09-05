@@ -87,6 +87,10 @@ export interface SelectVideoTypeRequest {
   prompt?: string;
   data?: unknown;
   csv?: string;
+  // An explicit World Bank request (PLAN.md Phase 9 step 4) is exactly as
+  // unambiguous a structural signal as data/csv already are — naming a
+  // country/indicator to fetch can only ever mean time_series today.
+  worldBank?: unknown;
 }
 
 export interface SelectVideoTypeResult {
@@ -123,6 +127,10 @@ export async function selectVideoType(req: SelectVideoTypeRequest, deps: SelectV
   }
   if (req.data !== undefined && looksLikeTimeSeriesData(req.data)) {
     notes.push("supplied data already matches a TimeSeriesSpec shape (xAxis + series) — time_series, no model call needed");
+    return { videoType: "time_series", notes };
+  }
+  if (req.worldBank !== undefined) {
+    notes.push("explicit worldBank request supplied — time_series, no model call needed");
     return { videoType: "time_series", notes };
   }
 

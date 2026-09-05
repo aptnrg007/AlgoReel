@@ -130,3 +130,12 @@ test("a prompt matching all three signals at once still goes through the ladder"
   assert.equal(result.videoType, "bar_race");
   assert.equal(result.rung, 0);
 });
+
+test("an explicit worldBank request decides time_series deterministically, even with no prompt/data/csv", async () => {
+  const result = await selectVideoType(
+    { worldBank: { countryCode: "BR", indicatorCode: "NY.GDP.MKTP.CD" } },
+    { chooseVideoType: () => { throw new Error("should not be called"); } },
+  );
+  assert.equal(result.videoType, "time_series");
+  assert.equal(result.rung, undefined);
+});
