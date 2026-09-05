@@ -15,6 +15,8 @@
     "render:time-series-cli": "tsx src/cli/renderTimeSeries.ts specs/time-series/time-series-demo.json --duration=20",
     "render:bar-race-demo": "remotion render remotion/index.ts BarRaceDemo out/bar-race-demo.mp4",
     "render:bar-race-cli": "tsx src/cli/renderBarRace.ts specs/bar-race/bar-race-demo.json --duration=20",
+    "render:timeline-demo": "remotion render remotion/index.ts TimelineDemo out/timeline-demo.mp4",
+    "render:timeline-cli": "tsx src/cli/renderTimeline.ts specs/timeline/timeline-demo.json --duration=16",
     "generate:schema": "tsx scripts/generate-story-spec-schema.ts",
     "studio": "remotion studio remotion/index.ts",
     "test": "node --import tsx --test --test-concurrency=1 $(find src remotion -name '*.test.ts' | sort)"

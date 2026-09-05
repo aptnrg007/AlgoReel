@@ -1184,19 +1184,79 @@ Planned, in priority order:
    proven — same discipline as `structure: "graph"` codegen only landing
    after `structure: "array"` was proven.
 
-5. **`timeline` (historical events) as a fourth video type** — lower
-   priority than the above since it's mostly validating the registry
-   against a non-chart shape (nodes with dates/labels, no numeric axis)
-   rather than adding real capability; do this once 2-4 are settled and
-   the recipe in §27 could use a second confirmation beyond `bar_race`.
+5. **`timeline` (historical events) as a fourth video type (done).** Lower
+   priority than the above by design — it's mostly a second confirmation
+   of §27's recipe against a genuinely non-chart shape (nodes with dates/
+   labels, no numeric axis at all) rather than new capability. Built
+   exactly via the recipe: `src/spec/timeline/{types,schema,validate,
+   checkRender,fromCsv}.ts`, `remotion/primitives/{timelineLayout.ts,
+   TimelineView.tsx}`, `remotion/TimelineVideo.tsx`, one new `VIDEO_TYPES`
+   entry, a demo spec (the exact four-event example from this document's
+   original proposal — WWII ends, Moon landing, Berlin Wall falls, World
+   Wide Web), CSV support (`date,title` columns, fixed shape like every
+   other type's `fromCsv.ts`), a CLI (`renderTimeline.ts`, mirrors
+   `renderTimeSeries.ts`/`renderBarRace.ts`), and `selectVideoType.ts`/
+   `select-video-type.yaml` extended to a real four-way classifier
+   (`dsa`/`time_series`/`bar_race`/`timeline`). `Video.tsx`/`Root.tsx`'s
+   dispatch logic needed **zero changes** — confirmed by `tsc --noEmit`
+   passing untouched, the fourth confirmation in a row that the registry
+   generalizes rather than just appearing to.
+
+   `timelineLayout.ts`'s `xForIndex`/`revealedCount` are identical in
+   shape to `timeSeriesLayout.ts`'s functions of the same name, and were
+   deliberately *not* extracted into a shared module — duplicated on
+   purpose, per §22's "keep domain-specific state separate" tradeoff,
+   specifically to avoid destabilizing `time_series`'s already-shipped,
+   live-verified geometry for a lower-priority type. Worth a real
+   extraction if a fifth type needs the same thing twice more.
+   `checkTimelineRender`'s label checks deliberately do *not* thin labels
+   the way `time_series`'s x-axis did in step 1 — every event on a
+   timeline is a discrete thing someone asked to see, not a densely
+   sampled axis, so a label that doesn't fit is a real error
+   (`timeline-label-too-wide`), not something to drop.
+
+   **No bugs found via live rendering this time** — unlike `bar_race`
+   (step 2, two real bugs) and World Bank (step 4, two real bugs, both
+   caught by tests rather than rendering), the first real render was
+   correct at every inspected frame: progressive line growth (solid for
+   revealed, dashed for not-yet), correct dot placement, correct
+   current-event highlighting, no overlapping labels. The one real
+   self-caught mistake was in `checkRender.ts` during development, not in
+   a render: an unused `FRAME` import paired with a `void FRAME;` and a
+   comment claiming the reveal-pacing check was "deliberately deferred"
+   — caught before commit and replaced with the check actually
+   implemented, the same `reveal-faster-than-frames` warning
+   `time_series` already has.
+
+   *Exit, met:* a genuinely ambiguous prompt with zero deterministic
+   signal ("walk me through key moments in the history of aviation" —
+   verified separately with an even more neutral phrasing carrying no
+   video-type vocabulary at all) went through the real four-way ladder
+   against actual `qwen3:8b` (no injected deps) and correctly chose
+   `timeline`. A full closed loop — `planVideo()` on a timeline-shaped
+   request through the real production path (`renderVideo()` shelling
+   out to `npx remotion render` against the actual `Video` composition,
+   not a demo-only composition) — produced a real mp4; first and last
+   frames inspected directly confirmed the right title, the right
+   current-event readout, and all four events correctly laid out with
+   the current one highlighted. 312/312 tests pass.
+
+   With this step done, all five Phase 9 items are complete: the
+   registry pattern has now been proven across four video types
+   (`dsa`, `time_series`, `bar_race`, `timeline`) without a single edit
+   to `Video.tsx`/`Root.tsx`'s dispatch logic since Phase 8, and the
+   planner performs real, deterministic-first, ladder-fallback-second
+   classification across all four.
 
 **Explicitly not planned now, and why:**
 - **A general "Video IR"** (shared `scenes`/`metadata` structure across
-  every video type) — the review's own caveat is the right one: two (soon
-  three or four) video types isn't enough evidence for what a real common
-  layer would need, the same reason `StructureView` didn't generalize
-  until a *third* structure needed the same thing (§9's "Codegen
-  generalized..." entry). Revisit after step 5, not before.
+  every video type) — the review's own caveat is the right one: four
+  video types is more evidence than two, but still built from only two
+  genuinely different rendering problems (point-reveal vs. continuous
+  re-ranking vs. a plain node sequence) — the same reason `StructureView`
+  didn't generalize until a *third* structure needed the same thing (§9's
+  "Codegen generalized..." entry). Revisit only once a fifth type's needs
+  are concrete, not speculatively.
 - **Narration/voice (TTS)** — a real, cross-cutting gap (every AlgoReel
   video is silent, dsa included — this predates Phase 8 and isn't
   time-series-specific), but blocked on a provider decision (which TTS

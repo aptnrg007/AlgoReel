@@ -15,6 +15,12 @@ import type { CsvParseOptions as BarRaceCsvParseOptions } from "../spec/barRace/
 import { parseCsvToBarRaceSpec } from "../spec/barRace/fromCsv";
 import type { BarRaceSpec } from "../spec/barRace/types";
 import { validateBarRaceSpec } from "../spec/barRace/validate";
+import { toTimelineVideoPlan } from "./fromTimelineSpec";
+import { checkTimelineRender, MIN_DURATION_SEC as TIMELINE_MIN_DURATION_SEC } from "../spec/timeline/checkRender";
+import type { CsvParseOptions as TimelineCsvParseOptions } from "../spec/timeline/fromCsv";
+import { parseCsvToTimelineSpec } from "../spec/timeline/fromCsv";
+import type { TimelineSpec } from "../spec/timeline/types";
+import { validateTimelineSpec } from "../spec/timeline/validate";
 import { ensureSpec, type EnsureSpecDeps } from "../spec/ensureSpec";
 
 export class PlanVideoError extends Error {}
@@ -44,6 +50,7 @@ export interface PlanVideoRequest {
   csv?: string;
   csvOptions?: CsvParseOptions;
   barRaceCsvOptions?: BarRaceCsvParseOptions;
+  timelineCsvOptions?: TimelineCsvParseOptions;
   // Real data acquisition, time_series only, deliberately scoped to one
   // source (PLAN.md Phase 9 step 4) — an explicit override for precision;
   // if omitted, planVideo tries extractWorldBankRequest(prompt) before
@@ -96,6 +103,17 @@ export async function planVideo(req: PlanVideoRequest, deps: PlanVideoDeps = {})
     }
     return planBarRaceVideo(req);
   }
+
+  if (classification.videoType === "timeline") {
+    if (!req.data && req.csv === undefined) {
+      throw new PlanVideoError(
+        "a timeline video needs data — this planner does not fetch external data itself (PLAN.md §15). " +
+          "Supply it via `data` (a spec-shaped object) or `csv` (a CSV string, with timelineCsvOptions).",
+      );
+    }
+    return planTimelineVideo(req);
+  }
+
   return planTimeSeriesVideo(req, deps);
 }
 
@@ -221,4 +239,44 @@ async function planBarRaceVideo(req: PlanVideoRequest): Promise<VideoPlan> {
   }
 
   return toBarRaceVideoPlan(spec, { targetDurationSec, description: req.description });
+}
+
+async function planTimelineVideo(req: PlanVideoRequest): Promise<VideoPlan> {
+  let candidate: unknown;
+  if (req.csv !== undefined) {
+    if (!req.timelineCsvOptions) {
+      throw new PlanVideoError("csv input requires timelineCsvOptions: { title }");
+    }
+    try {
+      candidate = parseCsvToTimelineSpec(req.csv, req.timelineCsvOptions);
+    } catch (err) {
+      throw new PlanVideoError(`could not parse csv: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  } else {
+    candidate = req.data;
+  }
+
+  const validation = validateTimelineSpec(candidate);
+  if (!validation.valid) {
+    throw new PlanVideoError(`supplied data is invalid: ${validation.errors.join("; ")}`);
+  }
+  const spec = candidate as TimelineSpec;
+  let targetDurationSec = req.targetDurationSec ?? DEFAULT_TARGET_DURATION_SEC;
+  let check = checkTimelineRender(spec, targetDurationSec);
+
+  // Same "widen the duration once, never touch data" repair as
+  // time_series's/bar_race's.
+  if (check.failures.some((f) => f.code === "duration-too-short")) {
+    if (TIMELINE_MIN_DURATION_SEC > targetDurationSec) {
+      targetDurationSec = TIMELINE_MIN_DURATION_SEC;
+      check = checkTimelineRender(spec, targetDurationSec);
+    }
+  }
+
+  if (!check.pass) {
+    const errors = check.failures.filter((f) => f.severity === "error").map((f) => f.message);
+    throw new PlanVideoError(`supplied data fails check_render: ${errors.join("; ")}`);
+  }
+
+  return toTimelineVideoPlan(spec, { targetDurationSec, description: req.description });
 }

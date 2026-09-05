@@ -1,11 +1,12 @@
 import type { StorySpec } from "../spec/types";
 import type { TimeSeriesSpec } from "../spec/timeSeries/types";
 import type { BarRaceSpec } from "../spec/barRace/types";
+import type { TimelineSpec } from "../spec/timeline/types";
 
 // The set of video types AlgoReel knows how to plan and render. A new type
 // gets added here only once its validator/timeline/renderer actually exist,
 // not speculatively ahead of them.
-export type VideoType = "dsa" | "time_series" | "bar_race";
+export type VideoType = "dsa" | "time_series" | "bar_race" | "timeline";
 
 interface VideoPlanBase {
   version: number;
@@ -38,4 +39,11 @@ export interface BarRaceVideoPlan extends VideoPlanBase {
   payload: BarRaceSpec;
 }
 
-export type VideoPlan = DsaVideoPlan | TimeSeriesVideoPlan | BarRaceVideoPlan;
+// TimelineSpec, like TimeSeriesSpec/BarRaceSpec, has no duration/title of
+// its own — same reasoning as those two above.
+export interface TimelineVideoPlan extends VideoPlanBase {
+  videoType: "timeline";
+  payload: TimelineSpec;
+}
+
+export type VideoPlan = DsaVideoPlan | TimeSeriesVideoPlan | BarRaceVideoPlan | TimelineVideoPlan;

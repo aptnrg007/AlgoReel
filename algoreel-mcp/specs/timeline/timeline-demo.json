@@ -1,0 +1,9 @@
+{
+  "title": "Milestones of the 20th Century",
+  "events": [
+    { "date": "1945", "title": "WWII ends" },
+    { "date": "1969", "title": "Moon landing" },
+    { "date": "1989", "title": "Berlin Wall falls" },
+    { "date": "1991", "title": "World Wide Web" }
+  ]
+}

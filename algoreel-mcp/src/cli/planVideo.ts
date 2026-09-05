@@ -11,6 +11,7 @@ const USAGE =
   'usage: planVideo.ts "<prompt>" [--data=path.json] [--duration=20]\n' +
   "  csv (time_series):  --csv=path.csv --title=... --x-label=... --y-label=... [--y-unit=...]\n" +
   "  csv (bar_race):     --csv=path.csv --title=... --x-label=... --value-label=...\n" +
+  "  csv (timeline):     --csv=path.csv --title=... (CSV columns are fixed: date,title)\n" +
   '  world bank:         a prompt naming a known country + indicator (e.g. "GDP timelapse for Brazil") ' +
   "fetches automatically; --world-bank-country=XX --world-bank-indicator=CODE overrides/extends that " +
   "for anything outside the small built-in table, optionally with --world-bank-start-year=/--world-bank-end-year=";
@@ -51,6 +52,7 @@ async function main(): Promise<void> {
       barRaceCsvOptions: csv
         ? { title: flags.title ?? prompt, xAxisLabel: flags["x-label"] ?? "", valueLabel: flags["value-label"] ?? "" }
         : undefined,
+      timelineCsvOptions: csv ? { title: flags.title ?? prompt } : undefined,
       worldBank: flags["world-bank-country"]
         ? {
             countryCode: flags["world-bank-country"]!,

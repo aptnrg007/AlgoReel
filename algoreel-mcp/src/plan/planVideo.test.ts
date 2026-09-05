@@ -281,3 +281,69 @@ test("a World Bank fetch failure surfaces as a clear PlanVideoError, not an unca
     },
   );
 });
+
+test("a timeline request with supplied JSON data produces a TimelineVideoPlan", async () => {
+  const data = {
+    title: "Milestones",
+    events: [
+      { date: "1945", title: "WWII ends" },
+      { date: "1969", title: "Moon landing" },
+    ],
+  };
+  const plan = await planVideo({ data, targetDurationSec: 15 });
+  assert.equal(plan.videoType, "timeline");
+  assert.deepEqual(plan.payload, data);
+  assert.equal(plan.targetDurationSec, 15);
+});
+
+test("a timeline request with CSV input normalizes it via timeline/fromCsv", async () => {
+  const plan = await planVideo({
+    prompt: "a timeline of key moments",
+    csv: "date,title\n1945,WWII ends\n1969,Moon landing\n",
+    timelineCsvOptions: { title: "Milestones" },
+  });
+  assert.equal(plan.videoType, "timeline");
+  if (plan.videoType === "timeline") {
+    assert.deepEqual(plan.payload.events, [
+      { date: "1945", title: "WWII ends" },
+      { date: "1969", title: "Moon landing" },
+    ]);
+  }
+});
+
+test("timeline csv input without timelineCsvOptions is a clear PlanVideoError, not a crash", async () => {
+  await assert.rejects(
+    () => planVideo({ prompt: "a timeline of key moments", csv: "date,title\n1945,WWII ends\n1969,Moon landing\n" }),
+    (err) => {
+      assert.ok(err instanceof PlanVideoError);
+      assert.match(err.message, /timelineCsvOptions/);
+      return true;
+    },
+  );
+});
+
+test("a timeline request with no data or csv is a clear PlanVideoError, not a hallucinated dataset", async () => {
+  // "timeline" alone, deliberately avoiding "race" (would also match
+  // bar_race's vocabulary) or "gdp"/"over time" (time_series's).
+  await assert.rejects(
+    () => planVideo({ prompt: "show the timeline of events from world history" }),
+    (err) => {
+      assert.ok(err instanceof PlanVideoError);
+      assert.match(err.message, /does not fetch external data/);
+      return true;
+    },
+  );
+});
+
+test("a too-short timeline duration is repaired to the minimum, not rejected", async () => {
+  const data = {
+    title: "x",
+    events: [
+      { date: "1945", title: "a" },
+      { date: "1969", title: "b" },
+    ],
+  };
+  const plan = await planVideo({ data, targetDurationSec: 0.1 });
+  assert.equal(plan.videoType, "timeline");
+  assert.ok(plan.targetDurationSec >= 1);
+});

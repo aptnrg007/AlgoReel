@@ -4,7 +4,7 @@
   "properties": {
     "videoType": {
       "type": "string",
-      "enum": ["dsa", "time_series", "bar_race"]
+      "enum": ["dsa", "time_series", "bar_race", "timeline"]
     }
   },
   "required": ["videoType"],

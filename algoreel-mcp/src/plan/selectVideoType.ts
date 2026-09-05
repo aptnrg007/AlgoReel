@@ -63,6 +63,24 @@ function looksLikeBarRaceRequest(prompt: string): boolean {
   return BAR_RACE_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
+// Deliberately distinct wording from the two lists above — "over time"/
+// "gdp"/etc. already mean something else; a genuine timeline request
+// names history, not data.
+const TIMELINE_KEYWORDS = [
+  "timeline",
+  "history of",
+  "historical events",
+  "chronology",
+  "milestones",
+  "key moments",
+  "major events",
+];
+
+function looksLikeTimelineRequest(prompt: string): boolean {
+  const lower = prompt.toLowerCase();
+  return TIMELINE_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
 // Structural detection of already-supplied data (PLAN.md §15: support
 // supplied data first, don't make the planner responsible for fetching
 // or recognizing it via prose) — a candidate this shape is unambiguously
@@ -81,6 +99,15 @@ function looksLikeBarRaceData(data: unknown): boolean {
   const d = data as Record<string, unknown>;
   const xAxis = d.xAxis as Record<string, unknown> | undefined;
   return typeof xAxis === "object" && xAxis !== null && Array.isArray(xAxis.values) && Array.isArray(d.entries);
+}
+
+// TimelineSpec has no xAxis at all (its own comment: no numeric axis,
+// just events) — the one shape here that can't collide with the other
+// two even on a shallow check.
+function looksLikeTimelineData(data: unknown): boolean {
+  if (typeof data !== "object" || data === null) return false;
+  const d = data as Record<string, unknown>;
+  return Array.isArray(d.events);
 }
 
 export interface SelectVideoTypeRequest {
@@ -129,6 +156,10 @@ export async function selectVideoType(req: SelectVideoTypeRequest, deps: SelectV
     notes.push("supplied data already matches a TimeSeriesSpec shape (xAxis + series) — time_series, no model call needed");
     return { videoType: "time_series", notes };
   }
+  if (req.data !== undefined && looksLikeTimelineData(req.data)) {
+    notes.push("supplied data already matches a TimelineSpec shape (events) — timeline, no model call needed");
+    return { videoType: "timeline", notes };
+  }
   if (req.worldBank !== undefined) {
     notes.push("explicit worldBank request supplied — time_series, no model call needed");
     return { videoType: "time_series", notes };
@@ -138,23 +169,32 @@ export async function selectVideoType(req: SelectVideoTypeRequest, deps: SelectV
     // csv carries no type info of its own — a prompt given alongside it
     // can still say which type it's for; absent that, time_series stays
     // the default (the more common case, and the one this existed for
-    // before bar_race did).
-    if (req.prompt && looksLikeBarRaceRequest(req.prompt) && !looksLikeTimeSeriesRequest(req.prompt)) {
+    // before bar_race/timeline did).
+    const promptText = req.prompt ?? "";
+    const csvBarRace = looksLikeBarRaceRequest(promptText);
+    const csvTimeline = looksLikeTimelineRequest(promptText);
+    const csvTimeSeries = looksLikeTimeSeriesRequest(promptText);
+    if (csvBarRace && !csvTimeline && !csvTimeSeries) {
       notes.push("csv input with a bar-race-worded prompt — bar_race, no model call needed");
       return { videoType: "bar_race", notes };
+    }
+    if (csvTimeline && !csvBarRace && !csvTimeSeries) {
+      notes.push("csv input with a timeline-worded prompt — timeline, no model call needed");
+      return { videoType: "timeline", notes };
     }
     notes.push("csv input supplied — time_series, no model call needed");
     return { videoType: "time_series", notes };
   }
 
   if (!req.prompt) {
-    throw new Error("selectVideoType needs a prompt, or data/csv shaped like a TimeSeriesSpec/BarRaceSpec, to decide a video type");
+    throw new Error("selectVideoType needs a prompt, or data/csv shaped like a TimeSeriesSpec/BarRaceSpec/TimelineSpec, to decide a video type");
   }
 
   const dsaMatch = keywordMatchAlgorithm(req.prompt) !== undefined;
   const timeSeriesMatch = looksLikeTimeSeriesRequest(req.prompt);
   const barRaceMatch = looksLikeBarRaceRequest(req.prompt);
-  const matchCount = [dsaMatch, timeSeriesMatch, barRaceMatch].filter(Boolean).length;
+  const timelineMatch = looksLikeTimelineRequest(req.prompt);
+  const matchCount = [dsaMatch, timeSeriesMatch, barRaceMatch, timelineMatch].filter(Boolean).length;
 
   if (matchCount === 1) {
     if (dsaMatch) {
@@ -164,6 +204,10 @@ export async function selectVideoType(req: SelectVideoTypeRequest, deps: SelectV
     if (barRaceMatch) {
       notes.push("matched bar-race vocabulary (ranking/race/leaderboard) — bar_race, no model call needed");
       return { videoType: "bar_race", notes };
+    }
+    if (timelineMatch) {
+      notes.push("matched timeline vocabulary (history/chronology/milestones) — timeline, no model call needed");
+      return { videoType: "timeline", notes };
     }
     notes.push("matched time-series vocabulary/year-range — time_series, no model call needed");
     return { videoType: "time_series", notes };
@@ -178,7 +222,9 @@ export async function selectVideoType(req: SelectVideoTypeRequest, deps: SelectV
       `- "time_series": animating numeric data changing over time (a timelapse/trend chart for one thing or a few ` +
       `things — e.g. GDP over years, population growth)\n` +
       `- "bar_race": entities ranked and reordering over time (a "bar chart race" — e.g. countries' GDP rankings ` +
-      `changing, who's biggest changing hands)${correction}`
+      `changing, who's biggest changing hands)\n` +
+      `- "timeline": a sequence of historical events with dates and short descriptions, no numeric data at all ` +
+      `(e.g. major moments of the 20th century)${correction}`
     );
   };
 

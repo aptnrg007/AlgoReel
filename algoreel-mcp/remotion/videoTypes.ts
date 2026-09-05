@@ -3,12 +3,15 @@ import { buildTimeline } from "./buildTimeline";
 import { AlgorithmVideo } from "./AlgorithmVideo";
 import { TimeSeriesVideo } from "./TimeSeriesVideo";
 import { BarRaceVideo } from "./BarRaceVideo";
-import type { BarRaceVideoPlan, DsaVideoPlan, TimeSeriesVideoPlan, VideoPlan, VideoType } from "../src/plan/types";
+import { TimelineVideo } from "./TimelineVideo";
+import type { BarRaceVideoPlan, DsaVideoPlan, TimeSeriesVideoPlan, TimelineVideoPlan, VideoPlan, VideoType } from "../src/plan/types";
 import { validateSpec } from "../src/spec/validate";
 import { checkTimeSeriesRender } from "../src/spec/timeSeries/checkRender";
 import { validateTimeSeriesSpec } from "../src/spec/timeSeries/validate";
 import { checkBarRaceRender } from "../src/spec/barRace/checkRender";
 import { validateBarRaceSpec } from "../src/spec/barRace/validate";
+import { checkTimelineRender } from "../src/spec/timeline/checkRender";
+import { validateTimelineSpec } from "../src/spec/timeline/validate";
 
 export interface PlanValidationResult {
   valid: boolean;
@@ -58,6 +61,15 @@ function validateBarRacePlan(plan: BarRaceVideoPlan): PlanValidationResult {
   return { valid: errors.length === 0, errors };
 }
 
+// Same shape as validateTimeSeriesPlan/validateBarRacePlan.
+function validateTimelinePlan(plan: TimelineVideoPlan): PlanValidationResult {
+  const shape = validateTimelineSpec(plan.payload);
+  if (!shape.valid) return shape;
+  const render = checkTimelineRender(plan.payload, plan.targetDurationSec);
+  const errors = render.failures.filter((f) => f.severity === "error").map((f) => f.message);
+  return { valid: errors.length === 0, errors };
+}
+
 export const VIDEO_TYPES: { [K in VideoType]: VideoTypeDefinition<Extract<VideoPlan, { videoType: K }>> } = {
   dsa: {
     validate: validateDsaPlan,
@@ -73,6 +85,11 @@ export const VIDEO_TYPES: { [K in VideoType]: VideoTypeDefinition<Extract<VideoP
     validate: validateBarRacePlan,
     calculateDurationInFrames: (plan, fps) => Math.round(plan.targetDurationSec * fps),
     render: BarRaceVideo,
+  },
+  timeline: {
+    validate: validateTimelinePlan,
+    calculateDurationInFrames: (plan, fps) => Math.round(plan.targetDurationSec * fps),
+    render: TimelineVideo,
   },
 };
 

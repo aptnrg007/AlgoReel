@@ -11,10 +11,13 @@ import inorderTraversalSpec from "../specs/inorder-traversal-demo.json";
 import reverseLinkedListSpec from "../specs/reverse-linked-list-demo.json";
 import timeSeriesDemoSpec from "../specs/time-series/time-series-demo.json";
 import barRaceDemoSpec from "../specs/bar-race/bar-race-demo.json";
+import timelineDemoSpec from "../specs/timeline/timeline-demo.json";
 import { toDsaVideoPlan } from "../src/plan/fromStorySpec";
 import { toTimeSeriesVideoPlan } from "../src/plan/fromTimeSeriesSpec";
 import { toBarRaceVideoPlan } from "../src/plan/fromBarRaceSpec";
+import { toTimelineVideoPlan } from "../src/plan/fromTimelineSpec";
 import type { BarRaceSpec } from "../src/spec/barRace/types";
+import type { TimelineSpec } from "../src/spec/timeline/types";
 import type { VideoPlan } from "../src/plan/types";
 import { calculateDurationInFrames } from "./videoTypes";
 import { FRAME } from "./template/tokens";
@@ -39,6 +42,10 @@ const compositions: Array<{ id: string; plan: VideoPlan }> = [
   {
     id: "BarRaceDemo",
     plan: toBarRaceVideoPlan(barRaceDemoSpec as BarRaceSpec, { targetDurationSec: 20 }),
+  },
+  {
+    id: "TimelineDemo",
+    plan: toTimelineVideoPlan(timelineDemoSpec as TimelineSpec, { targetDurationSec: 16 }),
   },
   // Generic target for MCP-driven renders (src/server.ts's render_preview
   // tool): the defaultProps plan here is just a placeholder, always

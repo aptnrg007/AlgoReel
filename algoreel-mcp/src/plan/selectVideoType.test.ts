@@ -139,3 +139,39 @@ test("an explicit worldBank request decides time_series deterministically, even 
   assert.equal(result.videoType, "time_series");
   assert.equal(result.rung, undefined);
 });
+
+test("TimelineSpec-shaped data decides timeline deterministically", async () => {
+  const data = { title: "x", events: [{ date: "1945", title: "a" }, { date: "1969", title: "b" }] };
+  const result = await selectVideoType(
+    { prompt: "make me a video", data },
+    { chooseVideoType: () => { throw new Error("should not be called"); } },
+  );
+  assert.equal(result.videoType, "timeline");
+  assert.equal(result.rung, undefined);
+});
+
+test("a history/chronology-worded prompt matches timeline vocabulary, with zero model calls", async () => {
+  const result = await selectVideoType(
+    { prompt: "show the timeline of major events in computing history" },
+    { chooseVideoType: () => { throw new Error("should not be called"); } },
+  );
+  assert.equal(result.videoType, "timeline");
+  assert.equal(result.rung, undefined);
+});
+
+test("csv with a timeline-worded prompt (and no other vocabulary) decides timeline", async () => {
+  const result = await selectVideoType(
+    { prompt: "a timeline of key moments", csv: "date,title\n1945,WWII ends\n1969,Moon landing\n" },
+    { chooseVideoType: () => { throw new Error("should not be called"); } },
+  );
+  assert.equal(result.videoType, "timeline");
+});
+
+test("a prompt matching all four signals at once still goes through the ladder", async () => {
+  const result = await selectVideoType(
+    { prompt: "explain bubble sort while tracking the gdp rankings race timeline over time" },
+    { chooseVideoType: async () => JSON.stringify({ videoType: "timeline" }) },
+  );
+  assert.equal(result.videoType, "timeline");
+  assert.equal(result.rung, 0);
+});

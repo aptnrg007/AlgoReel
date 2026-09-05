@@ -1,14 +1,15 @@
 # STATUS: local rung of planVideo.ts's video-type-selection step
 # (algoreel-mcp/src/plan/selectVideoType.ts) — PLAN.md's multi-video-type
-# architecture, "Phase 8" step 4 (bar_race added in "Phase 9" step 2). Only
-# invoked when no deterministic signal (algorithm keyword, time-series
-# vocabulary/year-range, bar-race vocabulary) already answered the question
+# architecture, "Phase 8" step 4 (bar_race added in "Phase 9" step 2,
+# timeline added in "Phase 9" step 5). Only invoked when no deterministic
+# signal (algorithm keyword, time-series vocabulary/year-range, bar-race
+# vocabulary, timeline vocabulary) already answered the question
 # (selectVideoType.ts's own comment) — a direct request like "explain
 # bubble sort" or "GDP timelapse from 1990 to 2025" never reaches this file.
 #
 # Deliberately toolless, no mcp:/tools:/approvals: — same two reasons
 # select-algorithm.yaml already documents for its own toolless design: this
-# is a single "read prompt, pick one of three labels" completion, not a
+# is a single "read prompt, pick one of four labels" completion, not a
 # conversation; and there's no MCP tool call this step needs to make.
 #
 # output.schema is safe here specifically because this agent is toolless —
@@ -33,10 +34,11 @@ model:
   think: false
 
 instructions: |
-  You decide which of three video types a request calls for:
+  You decide which of four video types a request calls for:
   - dsa: a DSA (algorithm/data structure) explainer
   - time_series: a timelapse of numeric data (one thing, or a few things) changing over time
   - bar_race: entities ranked and reordering over time (a "bar chart race")
+  - timeline: a sequence of historical events with dates and short descriptions, no numeric data at all
   Answer only the JSON object the schema requires — no prose, no markdown
   fences.
 

@@ -733,3 +733,40 @@ Following the phased plan in `PLAN.md` §9:
   no clipped or overlapping labels despite 66 real points). The explicit
   `--world-bank-country`/`--world-bank-indicator` CLI flags verified live
   too (Nigeria population). 281/281 tests pass.
+
+- **Phase 9, step 5 — `timeline` as a fourth video type, and Phase 9
+  complete.** Built via §27's recipe exactly: `src/spec/timeline/
+  {types,schema,validate,checkRender,fromCsv}.ts`, a pure
+  `timelineLayout.ts`, `TimelineView.tsx`/`TimelineVideo.tsx`, a
+  `VIDEO_TYPES` entry, a demo spec (the exact four-event example from
+  this project's original proposal document), CSV support, and a CLI.
+  `selectVideoType.ts` became a real four-way classifier
+  (`dsa`/`time_series`/`bar_race`/`timeline`). `Video.tsx`/`Root.tsx`
+  needed zero changes — the fourth type in a row to confirm that.
+  `timelineLayout.ts`'s reveal functions are deliberately duplicated
+  from `time_series`'s identical-shaped ones rather than shared, per
+  §22's tradeoff. Unlike every event/`checkTimeSeriesRender` label
+  check, timeline labels are never thinned — every event is a discrete
+  thing someone asked to see.
+
+  No real bugs found via live rendering this time (unlike `bar_race` and
+  World Bank before it) — the first render was correct at every
+  inspected frame. The one self-caught mistake was in `checkRender.ts`
+  during development: an unused `FRAME` import papered over with a
+  `void FRAME;` and a comment claiming the check was "deliberately
+  deferred," caught before commit and replaced with the real
+  `reveal-faster-than-frames` check `time_series` already has.
+
+  Verified live end to end: a genuinely ambiguous prompt with zero
+  deterministic signal went through the real four-way ladder against
+  actual `qwen3:8b` and correctly chose `timeline`; a full closed loop
+  through the real production render path (`planVideo()` →
+  `renderVideo()` → `npx remotion render` against the actual `Video`
+  composition, not a demo-only one) produced a real mp4, first and last
+  frames inspected directly. 312/312 tests pass.
+
+  All five Phase 9 items are now done: four video types
+  (`dsa`/`time_series`/`bar_race`/`timeline`) share one registry with no
+  changes to `Video.tsx`/`Root.tsx` since Phase 8, and the planner does
+  real deterministic-first, ladder-fallback-second classification across
+  all four.
