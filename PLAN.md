@@ -588,6 +588,101 @@ watching) was flagged as open when this phase started and remains open — the
 ladder exists so escalating on quality, not just on failure, is a future
 config change, not an architecture change.
 
+### Phase 8 — Multi-video-type architecture
+
+Every phase so far assumed the output is a DSA explainer. The goal now is to
+generalize AlgoReel from an algorithm-video generator into a general
+data/content → video generator: a planner decides *what kind* of video to
+make (`dsa`, `time_series`, ...), deterministic code decides how to
+validate, animate, and render it. Full design and phased implementation
+order live in a separate note; this section tracks what's actually landed.
+
+**Step 1 (done) — `VideoType`/`VideoPlan`, `Video.tsx` as a router.**
+`remotion/Video.tsx` used to *be* the DSA renderer — it read `spec.input`'s
+shape directly to pick `ArrayView` vs. `StructureView`. That logic moved,
+unchanged, into a new `remotion/AlgorithmVideo.tsx`; `Video.tsx` is now a
+plain `switch (plan.videoType)` dispatcher with one case, `dsa`, matching
+the target architecture's "the router never contains video-type-specific
+logic" rule. New `src/plan/types.ts` defines `VideoType = "dsa"` (only
+values with a real implementation — no speculative future types) and
+`VideoPlan`/`DsaVideoPlan`, which wraps a `StorySpec` under `{ videoType:
+"dsa", payload: <StorySpec> }` rather than replacing it — the existing DSA
+pipeline (`buildTimeline`, `checkRender`, every algorithm, every agent
+config) still speaks `StorySpec` untouched, exactly as the design note's
+"preserve the existing contract" principle calls for.
+
+The one real ripple: every current entry point that hands a prop into the
+`Video` Remotion composition (`Root.tsx`'s demo compositions, `renderVideo.ts`,
+`frameSampler.ts`) used to pass `{ spec }` — since `Video.tsx`'s prop
+contract changed, all three now wrap the `StorySpec` into a `DsaVideoPlan`
+first (`src/plan/fromStorySpec.ts`'s `toDsaVideoPlan`) before it reaches the
+composition. This is purely internal plumbing — every MCP tool in
+`server.ts` (`validate_spec`, `check_render`, `render_preview`, ...) still
+takes a bare `{ spec }` exactly as before; no agent config or tool schema
+changed. Verified live: full test suite (124/124) and `tsc --noEmit` both
+clean, plus two real Remotion renders confirming the actual prop-passing
+paths — `remotion render ... BinarySearch` (a demo composition, via
+`Root.tsx`) and `remotion render ... Video --props=<plan-shaped JSON>` (the
+generic MCP-render composition, exercising the exact shape `renderVideo.ts`/
+`frameSampler.ts` now write).
+
+Not yet done: the `time_series` video type itself, its validator/renderer,
+the `VIDEO_TYPES` registry (deliberately deferred — a registry with one
+member is premature), and the planner agent that would actually produce a
+`VideoPlan` instead of every call site wrapping a `StorySpec` by hand.
+
+**Step 2 (done) — the `time_series` video type: spec, validator, renderer,
+progressive animation.** New `src/spec/timeSeries/{types,schema,validate}.ts`
+define `TimeSeriesSpec` (title, xAxis, yAxis, series, optional animation
+mode) as a genuinely separate contract, not a StorySpec variant — no
+hook/narration/complexity, since a timelapse isn't a hook-steps-outro story.
+`validateTimeSeriesSpec` mirrors `validateSpec`'s shape-then-semantics split
+(zod for structure, a second pass for every series matching the x-axis's
+length, every value finite, no duplicate series names).
+
+New `remotion/primitives/timeSeriesLayout.ts` is pure geometry — no React,
+same discipline as `layout.ts` — computing a fixed-size chart's y-domain
+(10%-padded, spanning every series), x/y pixel positions, and how many
+x-axis points are "revealed" at a given `[0,1]` progress. `TimeSeriesView.tsx`
+draws that as SVG (axis lines/ticks, a highlighted "current" x-tick, one line
++ point-per-index per series, a legend for 2+ series, a value-at-the-end
+label for exactly 1 series to sidestep multi-series label collision), using
+the dataviz skill's validated dark-mode categorical order (checked live
+against this template's actual `COLORS.background`, not assumed) rather than
+picked-by-eye hues. `TimeSeriesVideo.tsx` is the Remotion composition:
+`useCurrentFrame()` + `interpolate()` → progress, handed to `TimeSeriesView`
+— it does nothing else, matching §7's "should not" list.
+
+`Video.tsx` gained a second router case; `Root.tsx` generalized from
+`{id, spec}` to `{id, plan}` (needed regardless of video type, since every
+composition shares one `Video` component now) and added a `TimeSeriesDemo`
+composition off a real India-GDP demo spec
+(`specs/time-series/time-series-demo.json` — kept in its own subdirectory
+specifically so `beatBudget.test.ts`'s non-recursive `specs/*.json` scan,
+which assumes every top-level file is a StorySpec, never picks it up). New
+`remotion/videoPlanDuration.ts` computes a `VideoPlan`'s rendered duration by
+`videoType` (defers to `buildTimeline` for `dsa`; `time_series` has no
+per-beat timeline, just `targetDurationSec` converted straight to frames) —
+`Root.tsx`'s `calculateMetadata` calls this instead of assuming `dsa`.
+
+Verified live, not just unit-tested: rendered the real `TimeSeriesDemo`
+composition end to end (`npm run render:time-series-demo`, a real 20s mp4),
+then pulled individual frames with `remotion still` and looked at them
+directly. That caught a real bug static analysis wouldn't have: the
+single-series end-value label sat a few pixels from the frame's right edge
+on the final frame ("3.9k" at progress=1) — not technically clipped, but
+close enough to be a real risk. Fixed by narrowing `CHART.width` (860→760)
+to leave deliberate margin for that label, confirmed by re-rendering the
+same frame. Also rendered a hand-built two-series plan through the generic
+`Video` composition (the exact `{plan: {...}}` shape a future MCP tool would
+send) to confirm the legend path and categorical color order.
+
+Still not done: MCP tool wiring for `time_series` (`render_preview` et al.
+remain dsa-only — no tool lets an agent request a time-series render yet),
+generic JSON/CSV input normalization, deterministic chart QA (an
+axes/labels/points-inside-frame check, `checkRender.ts`'s equivalent for
+this video type), and the planner agent itself.
+
 ---
 
 ## 10. Algorithm order

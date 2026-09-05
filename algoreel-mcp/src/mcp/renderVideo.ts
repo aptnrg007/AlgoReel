@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { buildTimeline } from "../../remotion/buildTimeline";
 import { FRAME } from "../../remotion/template/tokens";
 import { REMOTION_ENTRYPOINT, ROOT, VIDEO_COMPOSITION_ID } from "../config/paths";
+import { toDsaVideoPlan } from "../plan/fromStorySpec";
 import type { StorySpec } from "../spec/types";
 
 const execFileAsync = promisify(execFile);
@@ -31,7 +32,7 @@ export async function renderVideo(storySpec: StorySpec, options: RenderVideoOpti
   const id = randomUUID().slice(0, 8);
   const propsPath = join(options.tmpDir, `props-${id}.json`);
   const outputPath = join(options.outputDir, `${options.filenamePrefix}-${id}.mp4`);
-  writeFileSync(propsPath, JSON.stringify({ spec: storySpec }));
+  writeFileSync(propsPath, JSON.stringify({ plan: toDsaVideoPlan(storySpec) }));
 
   const timeline = buildTimeline(storySpec, FRAME.fps);
   const durationSec = Math.round((timeline.totalDurationInFrames / FRAME.fps) * 10) / 10;

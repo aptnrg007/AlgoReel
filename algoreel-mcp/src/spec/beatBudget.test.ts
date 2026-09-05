@@ -6,6 +6,9 @@ import { test } from "node:test";
 import { planBeats } from "./beatBudget";
 import type { StorySpec } from "./types";
 
+// Non-recursive on purpose: every file directly under specs/ is assumed to
+// be a StorySpec. Other video types' demo specs (e.g. specs/time-series/)
+// live in their own subdirectory precisely so this scan never picks them up.
 const SPECS_DIR = join(import.meta.dirname, "../../specs");
 
 function loadSpec(filename: string): StorySpec {

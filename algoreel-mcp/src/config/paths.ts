@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 // The Remotion entrypoint and the generic MCP-render composition id
-// (remotion/Root.tsx's "Video" entry, whose defaultProps spec is always
+// (remotion/Root.tsx's "Video" entry, whose defaultProps plan is always
 // overridden at render time via --props). Previously three independent
 // string-literal copies each in src/server.ts and src/render/
 // frameSampler.ts, plus remotion/Root.tsx's own declaration of the id.

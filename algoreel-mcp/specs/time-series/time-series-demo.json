@@ -1,0 +1,18 @@
+{
+  "title": "India GDP: 1990–2025",
+  "xAxis": {
+    "label": "Year",
+    "values": [1990, 1995, 2000, 2005, 2010, 2015, 2020, 2025]
+  },
+  "yAxis": {
+    "label": "GDP",
+    "unit": "USD billions"
+  },
+  "series": [
+    {
+      "name": "India",
+      "values": [320, 480, 710, 900, 1700, 2100, 2700, 3900]
+    }
+  ],
+  "animation": { "mode": "progressive" }
+}

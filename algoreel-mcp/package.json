@@ -11,6 +11,7 @@
     "render:inorder-traversal": "remotion render remotion/index.ts InorderTraversal out/inorder-traversal.mp4",
     "render:balanced-parens": "remotion render remotion/index.ts BalancedParens out/balanced-parens.mp4",
     "render:bst-insert": "remotion render remotion/index.ts BstInsert out/bst-insert.mp4",
+    "render:time-series-demo": "remotion render remotion/index.ts TimeSeriesDemo out/time-series-demo.mp4",
     "generate:schema": "tsx scripts/generate-story-spec-schema.ts",
     "studio": "remotion studio remotion/index.ts",
     "test": "node --import tsx --test --test-concurrency=1 src/**/*.test.ts remotion/**/*.test.ts"

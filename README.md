@@ -654,3 +654,56 @@ shape's cache never has to reason about the other; `list_algorithms`'
 `generated: true` field tells the agent (and you) which entries came from
 either path versus were hand-written. Linked lists, trees, and stacks
 still aren't codegen-covered — those stay hand-written.
+
+- **Phase 8, step 1 — `Video.tsx` is a videoType router.** Everything above
+  is DSA-only; the goal now is generalizing AlgoReel into a general
+  data/content → video generator (a planner picks the video type, code
+  handles validation/animation/rendering for it — see `PLAN.md` §9 Phase 8).
+  First step: `remotion/Video.tsx`'s DSA-specific rendering (pick
+  `ArrayView` vs. `StructureView` off the spec's input shape) moved
+  unchanged into new `remotion/AlgorithmVideo.tsx`; `Video.tsx` is now a
+  one-case `switch (plan.videoType)` dispatcher. New `src/plan/types.ts`
+  adds `VideoType`/`VideoPlan`, wrapping the existing `StorySpec` under
+  `{ videoType: "dsa", payload }` rather than replacing it — every
+  algorithm, MCP tool, and agent config still speaks `StorySpec` exactly as
+  before; only the three call sites that hand props to the `Video` Remotion
+  composition (`Root.tsx`, `renderVideo.ts`, `frameSampler.ts`) changed, to
+  wrap the spec into a plan first. Verified live: 124/124 tests and
+  `tsc --noEmit` clean, plus two real renders exercising both paths — a
+  demo composition (`BinarySearch`) and the generic MCP-render composition
+  with a hand-built plan-shaped props file, matching what `render_preview`
+  now actually writes. `time_series` (the second video type), the
+  `VIDEO_TYPES` registry, and the planner agent itself are still open.
+
+- **Phase 8, step 2 — the `time_series` video type.** New
+  `src/spec/timeSeries/{types,schema,validate}.ts` define `TimeSeriesSpec`
+  (title, x/y axis, one or more named series) as its own contract — no
+  hook/narration, since a timelapse isn't a hook-steps-outro story — with a
+  validator mirroring `validateSpec`'s shape-then-semantics split (every
+  series matches the x-axis length, every value finite, no duplicate
+  names). New `remotion/primitives/timeSeriesLayout.ts` (pure geometry, no
+  React) computes the chart's y-domain, point positions, and how many
+  x-axis points are "revealed" at a given progress; `TimeSeriesView.tsx`
+  draws that as SVG, using the dataviz skill's validated dark-mode
+  categorical palette (checked live against this template's real
+  background color) for multi-series color, with a legend for 2+ series and
+  a highlighted "current" x-axis tick. `TimeSeriesVideo.tsx` is the
+  Remotion composition — `useCurrentFrame()` + `interpolate()` → progress,
+  nothing else. `Video.tsx` gained a second router case; `Root.tsx` added a
+  `TimeSeriesDemo` composition off a real India-GDP demo spec
+  (`specs/time-series/`, its own subdirectory so the existing
+  `beatBudget.test.ts` spec-directory scan — which assumes every top-level
+  file is a StorySpec — never trips over it).
+
+  Verified live: rendered the real composition to an actual mp4
+  (`npm run render:time-series-demo`), then pulled individual frames with
+  `remotion still` and looked at them directly rather than trusting the
+  code — which caught a real bug: the single-series end-value label sat a
+  few pixels from the frame's right edge on the final frame, close enough
+  to be a real risk though not yet clipped. Fixed by narrowing the chart's
+  width to leave deliberate margin, confirmed by re-rendering the same
+  frame. Also rendered a hand-built two-series plan through the generic
+  `Video` composition to confirm the legend and categorical-color path.
+  Still open: MCP tool wiring for `time_series` (no tool can request one
+  yet), CSV/generic input normalization, deterministic chart QA (the
+  `checkRender.ts` equivalent for this video type), and the planner agent.

@@ -7,6 +7,7 @@ import { buildTimeline } from "../../remotion/buildTimeline";
 import { pickSampleFrames } from "../../remotion/sampleFrames";
 import { FRAME } from "../../remotion/template/tokens";
 import { REMOTION_ENTRYPOINT, ROOT, VIDEO_COMPOSITION_ID } from "../config/paths";
+import { toDsaVideoPlan } from "../plan/fromStorySpec";
 import type { StorySpec } from "../spec/types";
 
 export interface FrameImage {
@@ -48,7 +49,7 @@ function getServeUrl(): Promise<string> {
 // (output: null), so nothing touches disk and there's nothing to clean up.
 export async function sampleFrames(spec: StorySpec): Promise<FrameImage[]> {
   const serveUrl = await getServeUrl();
-  const inputProps = { spec };
+  const inputProps = { plan: toDsaVideoPlan(spec) };
   const composition = await selectComposition({ serveUrl, id: VIDEO_COMPOSITION_ID, inputProps, logLevel: "error" });
 
   const timeline = buildTimeline(spec, FRAME.fps);
