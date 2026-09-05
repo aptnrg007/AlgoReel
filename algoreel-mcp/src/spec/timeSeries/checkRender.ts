@@ -1,4 +1,4 @@
-import { CHART, computeYDomain, formatValue, xForIndex } from "../../../remotion/primitives/timeSeriesLayout";
+import { CHART, computeYDomain, formatValue, labelStride, tickIndicesToLabel, xForIndex } from "../../../remotion/primitives/timeSeriesLayout";
 import { estimateTextWidth } from "../../../remotion/primitives/textBox";
 import { FRAME, TYPE_SCALE } from "../../../remotion/template/tokens";
 import type { TimeSeriesSpec } from "./types";
@@ -46,34 +46,43 @@ export function checkTimeSeriesRender(spec: TimeSeriesSpec, targetDurationSec: n
   return { pass: !failures.some((f) => f.severity === "error"), failures };
 }
 
+// PLAN.md Phase 9 step 1: a dataset with many real, valid points used to
+// be rejected outright just because every point's own label wouldn't fit
+// on screen at once. TimeSeriesView.tsx now draws a tick mark for every
+// point but only a text label under a thinned, evenly-spaced subset
+// (tickIndicesToLabel) — no data is dropped, only some labels are. What's
+// left to check here is narrower: is even a *single* label too wide for
+// the chart to ever show (nothing thinning can fix), and — informationally,
+// never blocking — will thinning actually kick in for this dataset.
 function xAxisLabelChecks(spec: TimeSeriesSpec): Check[] {
   const n = spec.xAxis.values.length;
   if (n <= 1) return [];
 
-  const spacing = CHART.width / (n - 1);
   const widestLabel = Math.max(...spec.xAxis.values.map((v) => estimateTextWidth(String(v), LABEL_FONT_SIZE)));
 
-  if (widestLabel > spacing) {
+  if (widestLabel > CHART.width) {
     return [
       {
         severity: "error",
-        code: "x-axis-labels-overlap",
+        code: "x-axis-label-too-wide",
         message:
-          `${n} x-axis points are spaced ${spacing.toFixed(0)}px apart on the fixed ${CHART.width}px chart, but the ` +
-          `widest label is an estimated ${widestLabel.toFixed(0)}px wide — adjacent labels will overlap. ` +
-          `Use fewer points, or shorter labels.`,
+          `the widest x-axis label is an estimated ${widestLabel.toFixed(0)}px wide, wider than the entire ` +
+          `${CHART.width}px chart — no amount of label thinning can fit it. Use shorter x-axis values.`,
       },
     ];
   }
-  if (widestLabel > spacing * 0.8) {
+
+  const stride = labelStride(n, widestLabel);
+  if (stride > 1) {
+    const shown = tickIndicesToLabel(n, stride).length;
     return [
       {
         severity: "warning",
-        code: "x-axis-labels-tight",
+        code: "x-axis-labels-thinned",
         message:
-          `${n} x-axis points are spaced ${spacing.toFixed(0)}px apart, and the widest label is an estimated ` +
-          `${widestLabel.toFixed(0)}px wide (estimated, not measured — see textBox.ts) — labels are tight and may ` +
-          `visually crowd each other.`,
+          `${n} x-axis points won't all fit their own label at this width (estimated, not measured — see ` +
+          `textBox.ts) — only ${shown} of them will be labeled, evenly spaced, including both ends. Every point ` +
+          `still renders on the line; this only affects which ones get a text label.`,
       },
     ];
   }
@@ -141,7 +150,19 @@ function endValueLabelChecks(spec: TimeSeriesSpec): Check[] {
   return [];
 }
 
-const MIN_DURATION_SEC = 1;
+export const MIN_DURATION_SEC = 1;
+
+// The smallest targetDurationSec that would clear both of durationChecks'
+// concerns for this spec — used by planVideo.ts's repair step (PLAN.md
+// Phase 9 step 1) to widen a too-short duration deterministically, never
+// by a human/agent guessing a number. Doesn't touch data at all — only
+// how long the same reveal takes.
+export function minimumSufficientDurationSec(spec: TimeSeriesSpec): number {
+  const n = spec.xAxis.values.length;
+  const framesNeeded = Math.max(0, n - 1);
+  const secForFullReveal = framesNeeded / FRAME.fps;
+  return Math.max(MIN_DURATION_SEC, secForFullReveal);
+}
 
 function durationChecks(spec: TimeSeriesSpec, targetDurationSec: number): Check[] {
   const failures: Check[] = [];

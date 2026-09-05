@@ -1,6 +1,6 @@
 # AlgoReel — Plan
 
-**An agent-driven pipeline that produces and publishes DSA explainer Shorts, running on AgentForge.**
+**An agent-driven pipeline that turns a topic or a dataset into a published short-form video — DSA explainers and data timelapses today — running on AgentForge.**
 
 ---
 
@@ -941,6 +941,175 @@ improvise from:
 What deliberately isn't on this list: touching `Video.tsx`, `Root.tsx`, or
 any other video type's own files. If any of those need to change to add a
 type, the registry hasn't actually generalized — that's the bar step 5 set.
+
+### Phase 9 — Beyond two video types
+
+Prompted by an external review of the repo at the end of Phase 8: the
+architecture (determinism boundary, registry, deterministic QA) is sound,
+but the project is still "an AI DSA video generator that also does charts"
+rather than the more general thing PLAN.md §1 already describes. This
+phase is about *using* the extension points Phase 8 built, not building
+new ones — every step below either follows §27's existing recipe exactly,
+or is a deliberate, scoped exception to the determinism boundary's data
+rule, called out as such rather than smuggled in as a side effect of
+something else.
+
+**The one rule every step below has to hold to, restated because it's the
+part most likely to erode under feature pressure:** an agent may decide
+*labels* — which video type, what a chart's title says, which point is
+worth calling out, what the narration says about it. An agent never
+decides *values* — a data point, a coordinate, a duration in frames, which
+frame an event lands on. Event detection (step 3) is the sharpest test of
+this: the *finding* ("2008 was a 12% drop, the sharpest in the series")
+must come from arithmetic on the real data, the same way `checkRender.ts`'s
+geometry checks do; only the *sentence describing it* is ever an agent's
+job.
+
+Planned, in priority order:
+
+1. **Make `time_series`'s own QA loop symmetric with `dsa`'s (done).**
+   `qa.yaml` gives `dsa` a real check-fix-recheck-render loop;
+   `time_series` only had `checkTimeSeriesRender` refusing a bad render
+   with a message — nothing retried. Split into two pieces, since not all
+   of `checkTimeSeriesRender`'s failures are the same kind of problem:
+   - **Deterministic, no agent needed.** The old `x-axis-labels-overlap`/
+     `-tight` checks existed because every x-axis point got its own tick
+     label; a dataset with many real, valid points was rejected outright
+     rather than just drawing fewer labels. `timeSeriesLayout.ts` gained
+     `labelStride`/`tickIndicesToLabel`; `TimeSeriesView.tsx` now labels a
+     thinned, evenly-spaced subset of ticks (every point still gets its
+     tick mark and its place on the line) instead of rejecting the
+     dataset. `checkTimeSeriesRender` replaced the old error/warning pair
+     with `x-axis-label-too-wide` (a genuinely unfixable single label —
+     still a hard error) and `x-axis-labels-thinned` (informational,
+     never blocking).
+   - **Narrow repair, `planVideo.ts`'s flow only — turned out to need no
+     agent at all.** When the only remaining problem is duration-shaped
+     (`duration-too-short`, or the `reveal-faster-than-frames` warning),
+     `planVideo.ts` now widens `targetDurationSec` to
+     `minimumSufficientDurationSec(spec)` (new in `checkRender.ts`, pure
+     arithmetic — the smallest duration that clears both duration checks)
+     and re-checks once. If a failure isn't duration-shaped, or the
+     repair doesn't clear it, it stays a hard `PlanVideoError` — never
+     "fixed" by altering the caller's actual data. Writing this out made
+     the "agent repair" framing from this phase's own opening obsolete
+     for this specific step: computing the minimum sufficient duration is
+     a pure function of the spec, so there was never anything for an LLM
+     call to add.
+
+   **A real bug found live, not caught by any unit test first:** the
+   first version of the label-thinning fix computed "how many labels fit"
+   as a standalone count (`floor(chartWidth / labelWidth)`), then
+   proportionally remapped that count onto the real indices with
+   `Math.round`. Type-checked, unit-tested, all green — and still wrong.
+   Rendering a real 25-point dataset and looking at the actual frame
+   showed several originally-adjacent years (2006/2007/2008,
+   2016/2017/2018, ...) all still labeled and overlapping, because
+   proportional rounding on a non-integer step doesn't guarantee even
+   *index* gaps, only a correct *average* — it can (and did) keep two
+   already-adjacent points both labeled while skipping one three slots
+   away. The count-based estimate wasn't a good enough proxy for the real
+   constraint. Fixed by working in index space directly: a fixed
+   `stride` between shown indices, chosen so `stride` real per-point
+   spacings are provably `>=` the widest label's width — which is the
+   only thing that actually guarantees no overlap, by construction
+   rather than by a proportional approximation. Confirmed by re-rendering
+   the exact same dataset and looking at the frame again: clean,
+   every-other-year labels, no overlap. This is the second time in this
+   project a proportionally-plausible-looking layout estimate turned out
+   wrong only once a real frame was actually looked at (the first was the
+   "3.9k near the edge" bug in Phase 8 step 2) — reinforcing why every
+   step in this project's history renders and looks, rather than trusting
+   the math alone.
+
+   *Exit, met:* the demo GDP dataset extended to 25 points (previously a
+   hard `x-axis-labels-overlap` rejection) renders cleanly with thinned,
+   non-overlapping labels — verified by rendering and inspecting the
+   actual frame twice (once catching the bug, once confirming the fix).
+   A deliberately tiny `targetDurationSec` (0.1s on a 7-point spec, and
+   1s on a 90-point spec) gets corrected to the real minimum and rendered
+   successfully both times, confirmed live through `planVideo` +
+   `renderVideo` end to end. 201/201 tests pass.
+
+2. **`bar_race` as the third video type**, via §27's recipe exactly:
+   `src/spec/barRace/{types,schema,validate,checkRender}.ts`,
+   `remotion/primitives/{barRaceLayout.ts,BarRaceView.tsx}`,
+   `remotion/BarRaceVideo.tsx`, one new `VIDEO_TYPES` entry, a demo spec
+   (e.g. top-5 country GDP by year, reordering as ranks change) and
+   `render:bar-race-demo` script, plus a `selectVideoType.ts` signal
+   ("ranking", "who's biggest", "moving up and down") and a
+   `select-video-type.yaml` prompt update. The real test this type
+   provides that `time_series` didn't: entities *change rank* and
+   therefore *change vertical position* frame to frame, not just value —
+   a genuinely different layout problem (interpolating a bar's position,
+   not just its length) than anything the registry has handled yet.
+   *Exit:* a real render, inspected frame-by-frame the way every prior
+   video type was, showing bars visibly reordering as ranks change.
+
+3. **Deterministic event annotation**, for `time_series` first
+   (extends to `bar_race` once it exists). A pure function of the
+   already-computed series data — largest single-step `|Δvalue|` or
+   `|Δvalue / value|`, same "pure function, no render" discipline as every
+   `checkRender.ts` — flags *which* x-axis index is the standout point.
+   `TimeSeriesSpec` grows an optional `annotations` field (`{index, label}`)
+   that a planner (or a human) can fill in with the *sentence*; if absent,
+   the deterministic detector proposes the index and a caller (a future
+   narration step) supplies the label. The renderer draws a marker + label
+   at that point — never picks the point itself from prose. This is the
+   concrete mechanism for the "LLM explains, code detects" split the
+   review itself proposed.
+
+4. **Real data acquisition — one source, one indicator family, on
+   purpose.** Explicitly *not* "wire up World Bank + FRED + OWID + IMF" —
+   that repeats Phase A's own early mistake of generalizing before one
+   case is proven. Confirmed live before committing to this at all: this
+   environment has real outbound network access, and the World Bank API
+   needs no auth or key —
+   `https://api.worldbank.org/v2/country/IN/indicator/NY.GDP.MKTP.CD?format=json&date=1990:2025`
+   returns `[metadata, [{date, value, country: {value}, indicator: {value}}, ...]]`,
+   confirmed against real India GDP figures. Scope: a `src/spec/timeSeries/fromWorldBank.ts`
+   (mirrors `fromCsv.ts`'s shape — deterministic TypeScript, no LLM
+   involved in the fetch or the parsing) that takes a country code +
+   indicator code + year range and returns a `TimeSeriesSpec`, called by
+   `planVideo.ts` only when the caller names a country/indicator
+   explicitly (an agent may pick *which* indicator/country the request
+   implies — a label decision — but the fetch and every number in the
+   result is the real HTTP response, unmodified). The source URL and
+   retrieval time get stamped into the `VideoPlan`'s `description` field
+   as provenance, so a viewer can trace every number back to where it
+   came from. *Exit:* `"GDP timelapse for Brazil"` with no CSV/JSON
+   attached produces a real render sourced from a live API call, and the
+   plan JSON shows exactly which URL supplied the numbers. Other sources
+   (FRED, OWID, UN) are explicitly future work, added one at a time, only
+   after this one is proven — same discipline as `structure: "graph"`
+   codegen only landing after `structure: "array"` was proven.
+
+5. **`timeline` (historical events) as a fourth video type** — lower
+   priority than the above since it's mostly validating the registry
+   against a non-chart shape (nodes with dates/labels, no numeric axis)
+   rather than adding real capability; do this once 2-4 are settled and
+   the recipe in §27 could use a second confirmation beyond `bar_race`.
+
+**Explicitly not planned now, and why:**
+- **A general "Video IR"** (shared `scenes`/`metadata` structure across
+  every video type) — the review's own caveat is the right one: two (soon
+  three or four) video types isn't enough evidence for what a real common
+  layer would need, the same reason `StructureView` didn't generalize
+  until a *third* structure needed the same thing (§9's "Codegen
+  generalized..." entry). Revisit after step 5, not before.
+- **Narration/voice (TTS)** — a real, cross-cutting gap (every AlgoReel
+  video is silent, dsa included — this predates Phase 8 and isn't
+  time-series-specific), but blocked on a provider decision (which TTS
+  API, whether a key is available) that hasn't been made. Stays an open
+  decision (§11), not a committed step, until it has.
+- **Expanding the generated-algorithm system further** (more structures,
+  more families) — it works and is mature; the review's own advice here
+  is correct: the leverage now is in the video engine, not in teaching a
+  local model more sorts.
+- **Web UI, real YouTube publishing** — real product work, orthogonal to
+  the architecture story this phase is about; `youtube-server.ts`'s stub
+  and `run.sh`'s pipeline already prove the mechanism up to the point a
+  real OAuth project exists.
 
 ---
 

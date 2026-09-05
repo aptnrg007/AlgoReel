@@ -21,27 +21,31 @@ test("the committed GDP demo spec is clean end to end at its real duration", () 
   assert.equal(result.pass, true);
 });
 
-test("x-axis-labels-overlap fires when too many points are crammed into the fixed chart width", () => {
+test("x-axis-labels-thinned warns (not fails) when too many points are crammed into the fixed chart width — labels get thinned, not rejected", () => {
   const spec: TimeSeriesSpec = {
     ...GDP_DEMO,
     xAxis: { label: "Year", values: Array.from({ length: 25 }, (_, i) => 1000 + i) },
     series: [{ name: "India", values: Array.from({ length: 25 }, (_, i) => i) }],
   };
   const result = checkTimeSeriesRender(spec, 20);
-  assert.equal(result.pass, false);
-  assert.ok(codes(result.failures).includes("x-axis-labels-overlap"));
+  assert.equal(result.pass, true, "thinning fixes crowding — a wide dataset must not be rejected outright");
+  assert.ok(codes(result.failures).includes("x-axis-labels-thinned"));
 });
 
-test("x-axis-labels-tight warns without failing at a milder crowding", () => {
+test("x-axis-labels-thinned does not fire when every label already fits", () => {
+  const result = checkTimeSeriesRender(GDP_DEMO, 20);
+  assert.equal(codes(result.failures).includes("x-axis-labels-thinned"), false);
+});
+
+test("x-axis-label-too-wide fires only when a single label alone couldn't fit even with thinning", () => {
   const spec: TimeSeriesSpec = {
     ...GDP_DEMO,
-    xAxis: { label: "Year", values: Array.from({ length: 16 }, (_, i) => 1000 + i) },
-    series: [{ name: "India", values: Array.from({ length: 16 }, (_, i) => i) }],
+    xAxis: { label: "Year", values: ["a".repeat(200), "b".repeat(200)] },
+    series: [{ name: "India", values: [1, 2] }],
   };
   const result = checkTimeSeriesRender(spec, 20);
-  assert.equal(codes(result.failures).includes("x-axis-labels-overlap"), false);
-  assert.ok(codes(result.failures).includes("x-axis-labels-tight"));
-  assert.equal(result.pass, true, "a warning alone must not fail the render");
+  assert.equal(result.pass, false);
+  assert.ok(codes(result.failures).includes("x-axis-label-too-wide"));
 });
 
 test("y-axis-label-too-wide fires for unscaled huge values (use a yAxis.unit that pre-scales instead)", () => {

@@ -1,7 +1,10 @@
 import React from "react";
 import type { TimeSeriesSpec } from "../../src/spec/timeSeries/types";
 import { COLORS, TYPE_SCALE } from "../template/tokens";
-import { CHART, computeYDomain, formatValue, revealedCount, xForIndex, yForValue } from "./timeSeriesLayout";
+import { estimateTextWidth } from "./textBox";
+import { CHART, computeYDomain, formatValue, labelStride, revealedCount, tickIndicesToLabel, xForIndex, yForValue } from "./timeSeriesLayout";
+
+const LABEL_FONT_SIZE = TYPE_SCALE.label * 0.7;
 
 // Fixed categorical order (dataviz skill's validated dark palette, checked
 // live against this template's own COLORS.background) — series[i] always
@@ -29,6 +32,14 @@ export const TimeSeriesView: React.FC<{ spec: TimeSeriesSpec; progress: number }
   const showLegend = spec.series.length >= 2;
   const marginLeft = CHART.marginLeft;
   const marginTop = CHART.marginTop;
+
+  // Every point still gets a tick mark below; only this thinned,
+  // evenly-spaced subset also gets a text label, so a wide dataset never
+  // has to lose points just because they can't all be labeled at once
+  // (checkTimeSeriesRender's "x-axis-labels-thinned" is the QA-side half
+  // of this same mechanism — PLAN.md Phase 9 step 1).
+  const widestXLabel = Math.max(...spec.xAxis.values.map((v) => estimateTextWidth(String(v), LABEL_FONT_SIZE)));
+  const labeledIndices = new Set(tickIndicesToLabel(n, labelStride(n, widestXLabel)));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -92,16 +103,18 @@ export const TimeSeriesView: React.FC<{ spec: TimeSeriesSpec; progress: number }
                   stroke={isCurrent ? COLORS.focus : COLORS.neutralDim}
                   strokeWidth={isCurrent ? 3 : 1}
                 />
-                <text
-                  x={x}
-                  y={CHART.height + CHART.tickLength + 26}
-                  fill={isCurrent ? COLORS.focus : COLORS.neutralDim}
-                  fontSize={TYPE_SCALE.label * 0.7}
-                  fontWeight={isCurrent ? 800 : 400}
-                  textAnchor="middle"
-                >
-                  {v}
-                </text>
+                {labeledIndices.has(i) && (
+                  <text
+                    x={x}
+                    y={CHART.height + CHART.tickLength + 26}
+                    fill={isCurrent ? COLORS.focus : COLORS.neutralDim}
+                    fontSize={LABEL_FONT_SIZE}
+                    fontWeight={isCurrent ? 800 : 400}
+                    textAnchor="middle"
+                  >
+                    {v}
+                  </text>
+                )}
               </g>
             );
           })}

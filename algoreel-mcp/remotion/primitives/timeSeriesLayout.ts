@@ -78,3 +78,46 @@ export function formatValue(v: number): string {
   }
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
+
+// PLAN.md Phase 9 step 1: a wide dataset shouldn't be rejected just
+// because every point's own label wouldn't fit at once — every point
+// still gets its tick mark and its place on the line/chart regardless;
+// this only decides how many of those ticks also get a text label
+// underneath.
+//
+// Found live, the expensive way: an earlier version computed "how many
+// labels fit" as a standalone count (floor(CHART.width / labelWidth)),
+// then proportionally remapped that count onto n original indices with
+// Math.round. That's wrong for a *constrained* subset — the shown labels
+// aren't free to redistribute across the full width, they're stuck at
+// wherever their original point already sits, and proportional rounding
+// on non-integer steps doesn't guarantee even index gaps (it can, and
+// did, keep two originally-adjacent points both labeled while dropping a
+// point three slots away). A real render at n=25 showed exactly that:
+// clusters of consecutive years still overlapping despite the count math
+// claiming "18 of 25 fit."
+//
+// The fix works in index space directly: a fixed *stride* between shown
+// indices, chosen so stride original-index-steps of the *real* per-point
+// spacing is provably >= the widest label's width — which is the only
+// thing that actually guarantees no two shown labels overlap.
+export function labelStride(n: number, widestLabelWidthPx: number): number {
+  if (n <= 1) return 1;
+  const spacing = CHART.width / (n - 1);
+  if (widestLabelWidthPx <= 0 || spacing <= 0) return 1;
+  return Math.max(1, Math.ceil(widestLabelWidthPx / spacing));
+}
+
+// Every `stride`-th index, out of n total x-axis points, plus the final
+// index always (so the last point is never left unlabeled just because
+// the stride didn't land on it exactly). A fixed, whole-dataset decision —
+// not something that varies frame to frame — so it stays as checkable
+// ahead of a render as everything else in this file.
+export function tickIndicesToLabel(n: number, stride: number): number[] {
+  if (n <= 0) return [];
+  const step = Math.max(1, Math.floor(stride));
+  const indices: number[] = [];
+  for (let i = 0; i < n; i += step) indices.push(i);
+  if (indices[indices.length - 1] !== n - 1) indices.push(n - 1);
+  return indices;
+}

@@ -65,15 +65,27 @@ test("validateVideoPlan fails a time_series plan whose data is schema-invalid, b
 });
 
 test("validateVideoPlan fails a time_series plan whose data is schema-valid but geometrically bad (check_render's job)", () => {
-  const tooManyPoints: TimeSeriesSpec = {
+  // A single-series huge, unscaled value — many x-axis points alone is no
+  // longer a hard failure since PLAN.md Phase 9 step 1 (labels thin
+  // instead of erroring); this is a failure thinning can't fix.
+  const unscaled: TimeSeriesSpec = {
+    ...TIME_SERIES_SPEC,
+    series: [{ name: "India", values: TIME_SERIES_SPEC.series[0]!.values.map((v) => v * 1e12) }],
+  };
+  const plan = toTimeSeriesVideoPlan(unscaled, { targetDurationSec: 20 });
+  const result = validateVideoPlan(plan);
+  assert.equal(result.valid, false);
+});
+
+test("validateVideoPlan still passes a time_series plan with many points — labels thin instead of failing", () => {
+  const manyPoints: TimeSeriesSpec = {
     ...TIME_SERIES_SPEC,
     xAxis: { label: "Year", values: Array.from({ length: 30 }, (_, i) => 1990 + i) },
     series: [{ name: "India", values: Array.from({ length: 30 }, (_, i) => i) }],
   };
-  const plan = toTimeSeriesVideoPlan(tooManyPoints, { targetDurationSec: 20 });
+  const plan = toTimeSeriesVideoPlan(manyPoints, { targetDurationSec: 20 });
   const result = validateVideoPlan(plan);
-  assert.equal(result.valid, false);
-  assert.match(result.errors.join("\n"), /adjacent labels will overlap/);
+  assert.equal(result.valid, true);
 });
 
 test("renderComponentFor returns AlgorithmVideo for a dsa plan and TimeSeriesVideo for a time_series plan", () => {

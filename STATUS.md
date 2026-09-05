@@ -601,3 +601,41 @@ Following the phased plan in `PLAN.md` §9:
   generalized from what `dsa`/`time_series` each actually needed.
   188/188 tests pass. Still open: MCP tool wiring for `time_series` and
   real data acquisition (deliberately out of scope — supplied data only).
+
+- **Phase 9, step 1 — `time_series`'s QA loop made symmetric with
+  `dsa`'s.** Prompted by an external review of the repo at the end of
+  Phase 8 (see `PLAN.md` §9 Phase 9 for the full roadmap this kicked off).
+  `checkTimeSeriesRender` used to reject a wide-but-valid dataset outright
+  (too many x-axis points to label); it now thins labels instead —
+  `timeSeriesLayout.ts` gained `labelStride`/`tickIndicesToLabel`,
+  `TimeSeriesView.tsx` labels an evenly-spaced subset of ticks while every
+  point still gets its place on the line, and the old
+  `x-axis-labels-overlap`/`-tight` checks became `x-axis-label-too-wide`
+  (a single label that genuinely can't fit — still an error) and
+  `x-axis-labels-thinned` (informational, non-blocking). Separately,
+  `planVideo.ts` now repairs a too-short `targetDurationSec`
+  automatically via a new pure function, `minimumSufficientDurationSec` —
+  no agent call turned out to be needed, since the "right" duration is
+  just arithmetic on the spec.
+
+  **A real bug found live, past what unit tests and type-checking already
+  caught clean:** the first version of the thinning fix computed "how
+  many labels fit" as a standalone count, then proportionally remapped it
+  onto the real indices with `Math.round`. Rendering an actual 25-point
+  dataset and looking at the frame showed several originally-adjacent
+  years still both labeled and overlapping — the count was right on
+  average but `Math.round` on a non-integer step doesn't guarantee even
+  index gaps. Fixed by switching to a fixed index `stride` (chosen so
+  `stride` real per-point pixel-spacings are provably `>=` the label
+  width), which rules out overlap by construction instead of by a
+  proportional approximation. Confirmed by re-rendering the identical
+  dataset and looking again: clean, non-overlapping, every-other-year
+  labels. The second time in this project a plausible-looking layout
+  estimate was only caught wrong by actually rendering and looking, not
+  by the math or the tests (the first was Phase 8 step 2's "3.9k near the
+  edge").
+
+  Verified live end to end: the duration repair confirmed on both a
+  small (7-point, hits the flat 1s floor) and a large (90-point, hits the
+  reveal-pacing minimum) dataset, both through real `planVideo` +
+  `renderVideo` calls producing real mp4s. 201/201 tests pass.

@@ -100,16 +100,50 @@ test("invalid supplied data is a clear PlanVideoError", async () => {
   });
 });
 
-test("supplied data that fails check_render is a clear PlanVideoError before any render is attempted", async () => {
+test("supplied data with an unfixable check_render failure (not duration-shaped) is a clear PlanVideoError", async () => {
   const data = {
-    title: "Too Many Points",
-    xAxis: { label: "Year", values: Array.from({ length: 30 }, (_, i) => 1990 + i) },
+    title: "Unscaled",
+    xAxis: { label: "Year", values: [1990, 2000] },
     yAxis: { label: "y" },
-    series: [{ name: "a", values: Array.from({ length: 30 }, (_, i) => i) }],
+    series: [{ name: "a", values: [3.9e14, 4.6e14] }],
   };
   await assert.rejects(() => planVideo({ data, targetDurationSec: 20 }), (err) => {
     assert.ok(err instanceof PlanVideoError);
     assert.match(err.message, /fails check_render/);
     return true;
   });
+});
+
+test("a wide dataset (many points) is no longer rejected outright — labels thin instead", async () => {
+  const data = {
+    title: "Many Points",
+    xAxis: { label: "Year", values: Array.from({ length: 30 }, (_, i) => 1990 + i) },
+    yAxis: { label: "y" },
+    series: [{ name: "a", values: Array.from({ length: 30 }, (_, i) => i) }],
+  };
+  const plan = await planVideo({ data, targetDurationSec: 20 });
+  assert.equal(plan.videoType, "time_series");
+});
+
+test("a too-short targetDurationSec is repaired to the minimum sufficient duration, not rejected", async () => {
+  const data = {
+    title: "x",
+    xAxis: { label: "Year", values: [1990, 1995, 2000, 2005, 2010] },
+    yAxis: { label: "y" },
+    series: [{ name: "a", values: [1, 2, 3, 4, 5] }],
+  };
+  const plan = await planVideo({ data, targetDurationSec: 0.1 });
+  assert.equal(plan.videoType, "time_series");
+  assert.ok(plan.targetDurationSec >= 1, `expected a repaired duration >= 1s, got ${plan.targetDurationSec}`);
+});
+
+test("a duration request that already passes is left untouched, not silently widened", async () => {
+  const data = {
+    title: "x",
+    xAxis: { label: "Year", values: [1990, 1995, 2000] },
+    yAxis: { label: "y" },
+    series: [{ name: "a", values: [1, 2, 3] }],
+  };
+  const plan = await planVideo({ data, targetDurationSec: 20 });
+  assert.equal(plan.targetDurationSec, 20);
 });

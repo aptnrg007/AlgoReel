@@ -2,7 +2,7 @@ import { toDsaVideoPlan } from "./fromStorySpec";
 import { toTimeSeriesVideoPlan } from "./fromTimeSeriesSpec";
 import { selectVideoType, type SelectVideoTypeDeps } from "./selectVideoType";
 import type { VideoPlan } from "./types";
-import { checkTimeSeriesRender } from "../spec/timeSeries/checkRender";
+import { checkTimeSeriesRender, minimumSufficientDurationSec } from "../spec/timeSeries/checkRender";
 import type { CsvParseOptions } from "../spec/timeSeries/fromCsv";
 import { parseCsvToTimeSeriesSpec } from "../spec/timeSeries/fromCsv";
 import type { TimeSeriesSpec } from "../spec/timeSeries/types";
@@ -12,6 +12,14 @@ import { ensureSpec, type EnsureSpecDeps } from "../spec/ensureSpec";
 export class PlanVideoError extends Error {}
 
 const DEFAULT_TARGET_DURATION_SEC = 20;
+
+// checkTimeSeriesRender failure codes that are exclusively about
+// targetDurationSec — fixable by widening the duration alone, never by
+// touching the caller's actual data. PLAN.md Phase 9 step 1's "narrow
+// agent repair" — no agent at all, in the end: computing the smallest
+// sufficient duration is pure arithmetic (minimumSufficientDurationSec),
+// so there's nothing here an LLM call would add.
+const DURATION_REPAIRABLE_CODES = new Set(["duration-too-short", "reveal-faster-than-frames"]);
 
 export interface PlanVideoRequest {
   // Free-text request, e.g. "explain quicksort" or "create a timelapse
@@ -86,9 +94,23 @@ export async function planVideo(req: PlanVideoRequest, deps: PlanVideoDeps = {})
     throw new PlanVideoError(`supplied data is invalid: ${validation.errors.join("; ")}`);
   }
   const spec = candidate as TimeSeriesSpec;
-  const targetDurationSec = req.targetDurationSec ?? DEFAULT_TARGET_DURATION_SEC;
+  let targetDurationSec = req.targetDurationSec ?? DEFAULT_TARGET_DURATION_SEC;
+  let check = checkTimeSeriesRender(spec, targetDurationSec);
 
-  const check = checkTimeSeriesRender(spec, targetDurationSec);
+  // Widen the duration once if it's the only thing wrong — covers both a
+  // hard duration-too-short error and a reveal-faster-than-frames warning
+  // (which never blocked pass on its own, but is still worth fixing for
+  // free when the fix is unambiguous and touches no data). Never retried
+  // a second time: if this doesn't clear it, the remaining problem isn't
+  // duration-shaped and no further widening would help.
+  if (check.failures.some((f) => DURATION_REPAIRABLE_CODES.has(f.code))) {
+    const sufficient = minimumSufficientDurationSec(spec);
+    if (sufficient > targetDurationSec) {
+      targetDurationSec = sufficient;
+      check = checkTimeSeriesRender(spec, targetDurationSec);
+    }
+  }
+
   if (!check.pass) {
     const errors = check.failures.filter((f) => f.severity === "error").map((f) => f.message);
     throw new PlanVideoError(`supplied data fails check_render: ${errors.join("; ")}`);
