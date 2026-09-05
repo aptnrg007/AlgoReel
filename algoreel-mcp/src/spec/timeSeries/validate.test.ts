@@ -31,11 +31,10 @@ test("rejects a series with more values than xAxis", () => {
   assert.match(result.errors.join("\n"), /has 9 value\(s\) but xAxis has 8/);
 });
 
-test("rejects a non-finite value (zod's z.number() alone allows Infinity)", () => {
+test("rejects a non-finite value (zod's z.number() itself rejects NaN/Infinity)", () => {
   const spec = { ...VALID, series: [{ name: "India", values: [320, 480, 710, 900, 1700, 2100, 2700, Infinity] }] };
   const result = validateTimeSeriesSpec(spec);
   assert.equal(result.valid, false);
-  assert.match(result.errors.join("\n"), /not a finite number/);
 });
 
 test("rejects an empty series array", () => {

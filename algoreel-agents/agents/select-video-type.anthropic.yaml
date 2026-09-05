@@ -1,0 +1,29 @@
+# STATUS: paid escalation rung for planVideo.ts's video-type-selection
+# step — see select-video-type.yaml for the local rung this stands in for.
+# selectVideoType.ts's selectionRungs() only reaches this file once the
+# local rung has exhausted its own attempts, and only when
+# ANTHROPIC_API_KEY is actually set in the environment — never
+# speculatively (mirrors select-algorithm.anthropic.yaml's own reasoning).
+name: select-video-type-anthropic
+
+model:
+  provider: anthropic
+  name: claude-sonnet-5
+  api_key: ${ANTHROPIC_API_KEY}
+  # No temperature field — claude-sonnet-5 rejects it as a request
+  # parameter (see select-algorithm.anthropic.yaml's own comment).
+
+instructions: |
+  You decide whether a video request calls for a DSA (algorithm/data
+  structure) explainer or a time-series (numeric data animating over time)
+  timelapse. Answer only the JSON object the schema requires — no prose,
+  no markdown fences.
+
+output:
+  schema: ./schemas/video-type-choice.json
+  on_invalid: retry
+  max_retries: 2
+
+limits:
+  max_turns: 1
+  max_tokens: 128

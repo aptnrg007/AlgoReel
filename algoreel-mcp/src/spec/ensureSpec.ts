@@ -120,7 +120,10 @@ export interface EnsureSpecDeps {
 // asking a model. select-algorithm.yaml only gets called for a genuinely
 // indirect topic ("how do you efficiently find something in a phone book
 // that's already alphabetized").
-function keywordMatchAlgorithm(topic: string): { name: string } | undefined {
+// Exported so src/plan/selectVideoType.ts can reuse the exact same
+// "is this confidently a known algorithm" signal for its own deterministic
+// dsa-vs-time_series classification, rather than a second, drift-prone copy.
+export function keywordMatchAlgorithm(topic: string): { name: string } | undefined {
   const words = new Set(topic.toLowerCase().match(/[a-z]+/g) ?? []);
   for (const entry of listAlgorithms()) {
     // camelCase -> ["bubble", "sort"] / ["bfs"] / ["reverse", "linked", "list"]

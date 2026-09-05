@@ -1,0 +1,48 @@
+# STATUS: local rung of planVideo.ts's video-type-selection step
+# (algoreel-mcp/src/plan/selectVideoType.ts) — PLAN.md's multi-video-type
+# architecture, "Phase 8" step 4. Only invoked when neither a deterministic
+# algorithm-keyword match nor a time-series-vocabulary match already
+# answered the question (selectVideoType.ts's own comment) — a direct
+# request like "explain bubble sort" or "GDP timelapse from 1990 to 2025"
+# never reaches this file at all.
+#
+# Deliberately toolless, no mcp:/tools:/approvals: — same two reasons
+# select-algorithm.yaml already documents for its own toolless design: this
+# is a single "read prompt, pick one of two labels" completion, not a
+# conversation; and there's no MCP tool call this step needs to make.
+#
+# output.schema is safe here specifically because this agent is toolless —
+# see select-algorithm.yaml's own comment on why that matters for Ollama's
+# grammar-constrained decoding.
+name: select-video-type
+
+model:
+  provider: ollama
+  name: qwen3:8b
+  num_ctx: 8192
+  temperature: 0.2
+  # think: false is load-bearing, not cosmetic — found live: with thinking
+  # on, this agent failed every attempt with "max turns (1) exceeded"
+  # (qwen3 burns its token budget on <think> reasoning before ever
+  # reaching the final JSON answer, gets truncated, and AgentForge needs a
+  # second turn to let it finish — same failure class qa.yaml/publish.yaml/
+  # animate.yaml's own think:false comments document for tool-using agents,
+  # just manifesting as a turn-limit error instead of a silent empty
+  # completion here, since this agent is toolless). A simple two-way
+  # classification has no real need for chain-of-thought anyway.
+  think: false
+
+instructions: |
+  You decide whether a video request calls for a DSA (algorithm/data
+  structure) explainer or a time-series (numeric data animating over time)
+  timelapse. Answer only the JSON object the schema requires — no prose,
+  no markdown fences.
+
+output:
+  schema: ./schemas/video-type-choice.json
+  on_invalid: retry
+  max_retries: 2
+
+limits:
+  max_turns: 1
+  max_tokens: 512

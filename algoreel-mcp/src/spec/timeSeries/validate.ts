@@ -7,8 +7,10 @@ export interface ValidationResult {
 }
 
 // Mirrors src/spec/validate.ts's shape-then-semantics split for StorySpec:
-// zod catches structural shape, semanticErrors catches everything a schema
-// can't express (cross-field agreement, finiteness). Cheap, no render.
+// zod catches structural shape (including finiteness — confirmed live:
+// zod v4's z.number() already rejects NaN/Infinity as invalid_type before
+// this ever runs, so semanticErrors only needs cross-field agreement zod
+// can't express on its own). Cheap, no render.
 export function validateTimeSeriesSpec(candidate: unknown): ValidationResult {
   const parsed = timeSeriesSchema.safeParse(candidate);
   if (!parsed.success) {
@@ -30,11 +32,6 @@ function semanticErrors(spec: TimeSeriesSpec): string[] {
         `series "${s.name}" has ${s.values.length} value(s) but xAxis has ${n} — every series must have exactly one value per x-axis point`,
       );
     }
-    s.values.forEach((v, i) => {
-      if (!Number.isFinite(v)) {
-        errors.push(`series "${s.name}" value at index ${i} is not a finite number (${JSON.stringify(v)})`);
-      }
-    });
   }
 
   const names = spec.series.map((s) => s.name);

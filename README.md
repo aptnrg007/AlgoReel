@@ -707,3 +707,84 @@ still aren't codegen-covered — those stay hand-written.
   Still open: MCP tool wiring for `time_series` (no tool can request one
   yet), CSV/generic input normalization, deterministic chart QA (the
   `checkRender.ts` equivalent for this video type), and the planner agent.
+
+- **Phase 8, step 3 — generic data input, deterministic chart QA, and a
+  real CLI entry point.** New `src/cli/renderTimeSeries.ts` takes a bare
+  TimeSeriesSpec JSON or a plain CSV and renders it to a real mp4 next to
+  the input — the first way to render a time-series video without
+  hand-editing `Root.tsx`. It runs the same validate-then-check-then-render
+  discipline the MCP tools already enforce for `dsa`, refusing to render
+  (and printing why) if either step fails. New
+  `src/spec/timeSeries/checkRender.ts` is `checkRender.ts`'s time-series
+  equivalent — pure geometry checks (x-axis labels crowded past overlap,
+  a y-axis or end-value label too wide for its margin — the general form
+  of step 2's "3.9k near the edge" bug, now a checked invariant instead of
+  a one-off fix, since label width depends on a value's magnitude, not
+  just point count — too-short a duration, more points than frames to
+  reveal them in). New `src/spec/timeSeries/fromCsv.ts` normalizes a plain
+  CSV (first column x-axis, every other column a named series) into a
+  `TimeSeriesSpec`. `renderVideo.ts` generalized from `StorySpec`-only to
+  take a `VideoPlan` directly, so the CLI and the existing MCP render tools
+  share one implementation.
+
+  **A real, separate bug found while adding this phase's tests:**
+  `package.json`'s test script relied on shell `**` globbing to find test
+  files recursively, but `npm test` runs via `/bin/sh` (dash on this
+  machine), which doesn't support recursive globstar — it silently missed
+  anything nested two directory levels deep, which meant `validate.test.ts`
+  (added in step 2, at exactly that depth) had **never actually run** under
+  `npm test` since it was added. Confirmed live (an interactive zsh shell
+  found all 18 test files with the same glob; `sh -c` found only 15) and
+  fixed by switching to `find src remotion -name '*.test.ts'`. Running the
+  now-complete suite immediately surfaced a second real bug hiding behind
+  the first: a test asserted a custom error message from a semantic check
+  that can never actually run, because zod v4's `z.number()` already
+  rejects `NaN`/`Infinity` at the schema layer (confirmed directly against
+  zod) — the check was dead code. Removed it and fixed the test.
+
+  Verified live: rendered the committed GDP demo through the new CLI to a
+  real mp4, built a CSV by hand and rendered it through the CSV path to a
+  separate mp4, and confirmed a deliberately bad spec (guaranteed label
+  overlap) is refused with no mp4 produced. Still open: MCP tool wiring for
+  `time_series` and the planner agent (Phase 4).
+
+- **Phase 8, step 4 — the planner agent.** New `src/plan/selectVideoType.ts`
+  decides `dsa` vs `time_series` for a request, mirroring `ensureSpec.ts`'s
+  own algorithm-selection pattern: deterministic first (CSV/data already
+  shaped like a `TimeSeriesSpec` is unambiguously `time_series`; a prompt
+  matching a known algorithm by keyword is `dsa` unless it also matches
+  time-series vocabulary or a year range, in which case it's ambiguous),
+  falling back to a new local agent, `select-video-type.yaml`
+  (`qwen3:8b`, toolless, schema-constrained output), with a paid escalation
+  rung gated on `ANTHROPIC_API_KEY` — the same `runLadder` machinery
+  `ensureSpec.ts` already uses. New `src/plan/planVideo.ts` connects that
+  classification to an actual `VideoPlan`: `dsa` calls `ensureSpec`
+  directly; `time_series` requires the caller to already supply `data` or
+  `csv` — a request with neither is a clean error, never a hallucinated
+  dataset, making "the planner doesn't fetch external data" an enforced
+  invariant. New `src/cli/planVideo.ts` is the first entry point that goes
+  from a bare request straight to a `VideoPlan`.
+
+  This phase happened to land where `agentforge` and a running Ollama
+  (`qwen3:8b`) were actually available, so it was verified genuinely live,
+  not just against injected test deps: `"explain bubble sort"` through a
+  real narration call to a real `DsaVideoPlan` to a real rendered mp4; a
+  hand-built GDP CSV through the deterministic `time_series` path to
+  another real mp4; and three genuinely ambiguous prompts sent to the real
+  agent, two classified correctly (`"find something in an
+  already-alphabetized phone book"` → `dsa`; `"how has the population of
+  Tokyo changed since 1950"` → `time_series`) and one on a request outside
+  either category's real scope, which the model still had to pick between.
+
+  **A real bug found and fixed via that live testing:** the agent first
+  failed every attempt with `max turns (1) exceeded` against real
+  `qwen3:8b` — `max_tokens: 128` was too small once qwen3's thinking
+  channel engaged, burning the whole budget on `<think>` reasoning before
+  ever reaching the JSON answer, then needing a second turn to finish and
+  exceeding the 1-turn limit. Same failure class this repo's tool-using
+  agents already document under `think: false`, just surfacing as a
+  turn-limit error instead of a silent empty completion since this agent
+  is toolless. Fixed by setting `think: false` and matching
+  `select-algorithm.yaml`'s `max_tokens: 512`; confirmed live afterward.
+  Still open: MCP tool wiring for `time_series` and the `VIDEO_TYPES`
+  registry (Phase 5).

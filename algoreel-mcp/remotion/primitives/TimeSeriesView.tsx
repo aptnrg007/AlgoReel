@@ -1,7 +1,7 @@
 import React from "react";
 import type { TimeSeriesSpec } from "../../src/spec/timeSeries/types";
 import { COLORS, TYPE_SCALE } from "../template/tokens";
-import { CHART, computeYDomain, revealedCount, xForIndex, yForValue } from "./timeSeriesLayout";
+import { CHART, computeYDomain, formatValue, revealedCount, xForIndex, yForValue } from "./timeSeriesLayout";
 
 // Fixed categorical order (dataviz skill's validated dark palette, checked
 // live against this template's own COLORS.background) — series[i] always
@@ -27,8 +27,8 @@ export const TimeSeriesView: React.FC<{ spec: TimeSeriesSpec; progress: number }
   const revealed = revealedCount(progress, n);
   const currentIndex = revealed - 1;
   const showLegend = spec.series.length >= 2;
-  const marginLeft = 100;
-  const marginTop = 30;
+  const marginLeft = CHART.marginLeft;
+  const marginTop = CHART.marginTop;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -39,7 +39,11 @@ export const TimeSeriesView: React.FC<{ spec: TimeSeriesSpec; progress: number }
         {spec.xAxis.values[currentIndex]}
       </div>
 
-      <svg width={CHART.width + marginLeft + 140} height={CHART.height + 120} style={{ marginTop: 24, overflow: "visible" }}>
+      <svg
+        width={CHART.width + marginLeft + CHART.rightLabelSpace}
+        height={CHART.height + 120}
+        style={{ marginTop: 24, overflow: "visible" }}
+      >
         <g transform={`translate(${marginLeft}, ${marginTop})`}>
           {/* y-axis */}
           <line x1={0} y1={0} x2={0} y2={CHART.height} stroke={COLORS.neutralDim} strokeWidth={1} />
@@ -160,11 +164,3 @@ export const TimeSeriesView: React.FC<{ spec: TimeSeriesSpec; progress: number }
     </div>
   );
 };
-
-function formatValue(v: number): string {
-  if (Math.abs(v) >= 1000) {
-    const scaled = v / 1000;
-    return `${Number.isInteger(scaled) ? scaled : scaled.toFixed(1)}k`;
-  }
-  return Number.isInteger(v) ? String(v) : v.toFixed(1);
-}

@@ -7,15 +7,23 @@ import type { TimeSeriesSpec } from "../../src/spec/timeSeries/types";
 // resize per element count" — if a dataset doesn't fit legibly here, the
 // fix is fewer points, not a smaller chart).
 // width leaves deliberate room in the 1080px frame for the y-axis label
-// column on the left and the single-series end-value label on the right
-// (TimeSeriesView.tsx) — found live: an earlier 860px width put "3.9k" a
-// few pixels from the frame's right edge on the demo's final frame.
+// column on the left (marginLeft) and the single-series end-value label on
+// the right (rightLabelSpace) — found live: an earlier 860px width put
+// "3.9k" a few pixels from the frame's right edge on the demo's final
+// frame. marginLeft/marginTop/rightLabelSpace live here rather than as
+// TimeSeriesView.tsx locals specifically so checkTimeSeriesRender (this
+// file's future consumer) can check real label geometry against the exact
+// space the renderer actually reserves, instead of a second guess that
+// could drift from it.
 export const CHART = {
   width: 760,
   height: 900,
   tickLength: 14,
   pointRadius: 6,
   leadPointRadius: 10,
+  marginLeft: 100,
+  marginTop: 30,
+  rightLabelSpace: 140,
 } as const;
 
 export interface YDomain {
@@ -57,4 +65,16 @@ export function revealedCount(progress: number, totalPoints: number): number {
   if (totalPoints <= 1) return totalPoints;
   const clamped = Math.min(1, Math.max(0, progress));
   return 1 + Math.round(clamped * (totalPoints - 1));
+}
+
+// Shared by TimeSeriesView.tsx (what actually renders) and
+// checkTimeSeriesRender (what checks label width before rendering) — a
+// single source of truth for how a value becomes label text, so the two
+// can never disagree about how wide a label is.
+export function formatValue(v: number): string {
+  if (Math.abs(v) >= 1000) {
+    const scaled = v / 1000;
+    return `${Number.isInteger(scaled) ? scaled : scaled.toFixed(1)}k`;
+  }
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }

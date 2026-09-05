@@ -13,6 +13,7 @@ import { generateAndValidateAlgorithm } from "./algorithms/sandboxArray";
 import type { Operation } from "./algorithms/types";
 import { ROOT } from "./config/paths";
 import { renderVideo } from "./mcp/renderVideo";
+import { toDsaVideoPlan } from "./plan/fromStorySpec";
 import { SPEC_INPUT_SCHEMA, text, validateSpecOrRespond } from "./mcp/respond";
 import { splitPrimarySteps } from "./spec/beats";
 import { checkRender } from "./spec/checkRender";
@@ -268,7 +269,7 @@ server.registerTool(
     if ("response" in validated) return validated.response;
     const { storySpec } = validated;
 
-    const result = await renderVideo(storySpec, { tmpDir: TMP_DIR, outputDir: PREVIEWS_DIR, filenamePrefix: "preview", scale: 0.5, timeoutMs: 180_000 });
+    const result = await renderVideo(toDsaVideoPlan(storySpec), { tmpDir: TMP_DIR, outputDir: PREVIEWS_DIR, filenamePrefix: "preview", scale: 0.5, timeoutMs: 180_000 });
     if (!result.ok) {
       return text(JSON.stringify({ error: "render failed", details: result.error }, null, 2), true);
     }
@@ -299,7 +300,7 @@ server.registerTool(
     // since this is the actual publishable asset. Longer timeout than
     // render_preview's for the same reason (roughly 4x the pixels of a
     // --scale=0.5 preview).
-    const result = await renderVideo(storySpec, { tmpDir: TMP_DIR, outputDir: FINAL_DIR, filenamePrefix: "final", timeoutMs: 300_000 });
+    const result = await renderVideo(toDsaVideoPlan(storySpec), { tmpDir: TMP_DIR, outputDir: FINAL_DIR, filenamePrefix: "final", timeoutMs: 300_000 });
     if (!result.ok) {
       return text(JSON.stringify({ error: "render failed", details: result.error }, null, 2), true);
     }

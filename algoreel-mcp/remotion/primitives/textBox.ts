@@ -45,3 +45,10 @@ export function estimateWrappedLines(text: string, opts: { maxWidthPx: number; f
 export function estimateTextBoxHeight(text: string, opts: { maxWidthPx: number; fontSizePx: number; lineHeight: number }): number {
   return estimateWrappedLines(text, opts) * opts.fontSizePx * opts.lineHeight;
 }
+
+// Single-line width, for labels short enough that wrapping never applies
+// (axis ticks, chart value labels) — same calibrated constant as the
+// wrapping estimate above, just without the word-wrap simulation.
+export function estimateTextWidth(text: string, fontSizePx: number): number {
+  return text.length * fontSizePx * AVG_CHAR_WIDTH_EM;
+}

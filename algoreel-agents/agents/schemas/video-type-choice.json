@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "videoType": {
+      "type": "string",
+      "enum": ["dsa", "time_series"]
+    }
+  },
+  "required": ["videoType"],
+  "additionalProperties": false
+}
