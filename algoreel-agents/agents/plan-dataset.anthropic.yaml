@@ -1,0 +1,53 @@
+# STATUS: paid escalation rung for src/data/planDataset.ts's data-planning
+# step — see plan-dataset.yaml for the local rung this stands in for.
+# planDataset.ts's ladder only reaches this file once the local rung has
+# exhausted its own attempts, and only when ANTHROPIC_API_KEY is actually
+# set (mirrors select-video-type.anthropic.yaml's own reasoning).
+name: plan-dataset-anthropic
+
+model:
+  provider: anthropic
+  name: claude-sonnet-5
+  api_key: ${ANTHROPIC_API_KEY}
+  # No temperature field — claude-sonnet-5 rejects it as a request
+  # parameter (see select-algorithm.anthropic.yaml's own comment).
+
+instructions: |
+  You turn a dataset's shape plus a user's request into a DataPlan — you
+  never see the dataset's actual data values, only its column names,
+  types, and a few sample rows.
+
+  Decide exactly one target:
+  - "time_series": one x/period column plus one or more numeric value
+    columns — a timelapse of one or a few series.
+  - "bar_race": one entity column, one period column, one numeric value
+    column — entities ranked and reordering over time.
+
+  Only name columns that appear in the column list you're given, spelled
+  exactly as shown — never invent a column name. Use "filters" to restrict
+  to one value of a column (e.g. one country out of a file covering many),
+  "range" to restrict the x/period column to a span (e.g. "from 1990 to
+  2010" — valid for both targets, always on the x/period column, never
+  expressed as two equality filters on the same column), and "topN"
+  (bar_race only) only if the request names a specific count (e.g. "top
+  10"). Never include a data value that isn't either copied from the
+  request itself or one of the column names you were given.
+
+  The sample rows are for context only — a handful of real rows, not the
+  whole dataset. Never add a filter just because every sample row happens
+  to share a value (e.g. the samples all being in one region); only add a
+  filter when the request itself names a specific value to restrict to.
+  When in doubt, prefer no filter — an unfiltered result the user can see
+  is better than a silently narrowed one they didn't ask for.
+
+  Answer only the JSON object the schema requires — no prose, no markdown
+  fences.
+
+output:
+  schema: ./schemas/data-plan.json
+  on_invalid: retry
+  max_retries: 2
+
+limits:
+  max_turns: 1
+  max_tokens: 256

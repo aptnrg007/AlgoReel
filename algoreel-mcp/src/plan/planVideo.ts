@@ -22,6 +22,15 @@ import { parseCsvToTimelineSpec } from "../spec/timeline/fromCsv";
 import type { TimelineSpec } from "../spec/timeline/types";
 import { validateTimelineSpec } from "../spec/timeline/validate";
 import { ensureSpec, type EnsureSpecDeps } from "../spec/ensureSpec";
+import { inspectDataset } from "../data/inspectDataset";
+import { planDataset, type PlanDatasetDeps } from "../data/planDataset";
+import { extractDataset } from "../data/extractDataset";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { downloadKaggleFile, kaggleCredentialsFromEnv, listKaggleDatasetFiles } from "../data/kaggleClient";
+import type { KaggleCredentials } from "../data/kaggleTypes";
+import { selectDatasetFile, type SelectDatasetFileDeps } from "../data/selectDatasetFile";
 
 export class PlanVideoError extends Error {}
 
@@ -56,6 +65,34 @@ export interface PlanVideoRequest {
   // if omitted, planVideo tries extractWorldBankRequest(prompt) before
   // giving up and demanding data/csv. Never fetched for dsa/bar_race.
   worldBank?: { countryCode: string; indicatorCode: string; startYear?: number; endYear?: number; yAxisUnit?: string; scale?: number };
+  // PLAN.md Phase 10 — an arbitrary local CSV/JSON file, schema unknown
+  // in advance. When set, this bypasses selectVideoType entirely (its
+  // job — deciding time_series vs. bar_race — is folded into the
+  // plan-dataset agent's own DataPlan, one agent call instead of two)
+  // and goes through inspectDataset -> planDataset -> extractDataset
+  // instead of any of the paths above. Requires `prompt` — there's no
+  // deterministic shortcut for "which columns," it's a genuine
+  // per-dataset judgment call the agent has to make.
+  datasetSource?: string;
+  // PLAN.md Phase 10 step 5 — a Kaggle dataset instead of a local file.
+  // Resolved to a local file (via Kaggle's API) and then handled
+  // identically to datasetSource above; everything downstream (inspect
+  // -> plan -> extract -> video plan) is unchanged. `fileName` is an
+  // explicit override for a multi-file dataset — if omitted, planVideo
+  // lists the dataset's real files and lets selectDatasetFile.ts decide
+  // (deterministically if there's only one real candidate, via a small
+  // agent call otherwise). Requires Kaggle credentials, via
+  // `kaggleCredentials` or the KAGGLE_USERNAME/KAGGLE_KEY env vars.
+  //
+  // Unlike every other live-network path in this project (World Bank,
+  // every agent-ladder call), this one has not itself been run against
+  // a real Kaggle account — this environment has no Kaggle credentials
+  // configured, so there was nothing to verify live against. Built to
+  // Kaggle's long-documented, stable public API surface and unit-tested
+  // against a mocked fetch (kaggleClient.test.ts), but treat it as
+  // best-effort pending a real credential to confirm against, not
+  // live-confirmed the way this repo's other integrations are.
+  kaggleDataset?: { ownerSlug: string; datasetSlug: string; fileName?: string };
   // time_series/bar_race only — neither spec carries a duration of its
   // own (plan/types.ts's *VideoPlan comments).
   targetDurationSec?: number;
@@ -66,6 +103,11 @@ export interface PlanVideoDeps extends SelectVideoTypeDeps {
   ensureSpec?: typeof ensureSpec;
   ensureSpecDeps?: EnsureSpecDeps;
   fetchWorldBankTimeSeries?: typeof fetchWorldBankTimeSeries;
+  planDataset?: PlanDatasetDeps["planDataset"];
+  kaggleCredentials?: KaggleCredentials;
+  listKaggleDatasetFiles?: typeof listKaggleDatasetFiles;
+  downloadKaggleFile?: typeof downloadKaggleFile;
+  chooseDatasetFile?: SelectDatasetFileDeps["chooseFile"];
 }
 
 const DEFAULT_WORLD_BANK_START_YEAR = 1960;
@@ -75,6 +117,10 @@ const DEFAULT_WORLD_BANK_START_YEAR = 1960;
 // Remotion code and never invents data — a time_series request with no
 // data/csv supplied is a clean, honest error, not a hallucinated dataset.
 export async function planVideo(req: PlanVideoRequest, deps: PlanVideoDeps = {}): Promise<VideoPlan> {
+  if (req.datasetSource !== undefined || req.kaggleDataset !== undefined) {
+    return planDatasetDrivenVideo(req, deps);
+  }
+
   const classification = await selectVideoType(
     { prompt: req.prompt, data: req.data, csv: req.csv, worldBank: req.worldBank },
     { chooseVideoType: deps.chooseVideoType },
@@ -169,6 +215,15 @@ async function planTimeSeriesVideo(req: PlanVideoRequest, deps: PlanVideoDeps): 
     provenanceDescription = `Source: World Bank API (${result.sourceUrl}), retrieved ${result.retrievedAt}`;
   }
 
+  return finalizeTimeSeriesVideo(candidate, req, provenanceDescription);
+}
+
+// The validate -> check_render -> auto-repair-duration -> toXVideoPlan
+// tail, shared by every path that produces a TimeSeriesSpec candidate
+// (csv/data/worldBank above, and Phase 10's extractDataset below) —
+// PLAN.md Phase 10 step 4's explicit point: a new *input path*, not a
+// reason to duplicate logic that already exists.
+function finalizeTimeSeriesVideo(candidate: unknown, req: PlanVideoRequest, provenanceDescription?: string): VideoPlan {
   const validation = validateTimeSeriesSpec(candidate);
   if (!validation.valid) {
     throw new PlanVideoError(`supplied data is invalid: ${validation.errors.join("; ")}`);
@@ -214,6 +269,11 @@ async function planBarRaceVideo(req: PlanVideoRequest): Promise<VideoPlan> {
     candidate = req.data;
   }
 
+  return finalizeBarRaceVideo(candidate, req);
+}
+
+// Mirrors finalizeTimeSeriesVideo's shared tail — see its comment.
+function finalizeBarRaceVideo(candidate: unknown, req: PlanVideoRequest, provenanceDescription?: string): VideoPlan {
   const validation = validateBarRaceSpec(candidate);
   if (!validation.valid) {
     throw new PlanVideoError(`supplied data is invalid: ${validation.errors.join("; ")}`);
@@ -238,7 +298,7 @@ async function planBarRaceVideo(req: PlanVideoRequest): Promise<VideoPlan> {
     throw new PlanVideoError(`supplied data fails check_render: ${errors.join("; ")}`);
   }
 
-  return toBarRaceVideoPlan(spec, { targetDurationSec, description: req.description });
+  return toBarRaceVideoPlan(spec, { targetDurationSec, description: req.description ?? provenanceDescription });
 }
 
 async function planTimelineVideo(req: PlanVideoRequest): Promise<VideoPlan> {
@@ -279,4 +339,112 @@ async function planTimelineVideo(req: PlanVideoRequest): Promise<VideoPlan> {
   }
 
   return toTimelineVideoPlan(spec, { targetDurationSec, description: req.description });
+}
+
+// PLAN.md Phase 10 steps 4-5 — the dataset-driven path: resolve a real
+// local file (either req.datasetSource directly, or a Kaggle dataset
+// downloaded via resolveDatasetFile below) -> inspect -> agent produces
+// a DataPlan -> extract -> the *existing* finalize* tails above. No
+// selectVideoType call at all — plan-dataset.yaml's own DataPlan
+// already carries the videoType decision, so this is one agent call,
+// not two, for exactly the same "an agent picks labels" reason
+// selectVideoType exists in the first place.
+async function planDatasetDrivenVideo(req: PlanVideoRequest, deps: PlanVideoDeps): Promise<VideoPlan> {
+  if (!req.prompt) {
+    throw new PlanVideoError(
+      "a datasetSource/kaggleDataset request also needs a prompt — there's no deterministic shortcut for which columns matter, the agent needs a real request to answer that.",
+    );
+  }
+
+  const { filePath, cleanup, provenanceSource } = await resolveDatasetFile(req, deps);
+  try {
+    let schema;
+    try {
+      schema = inspectDataset(filePath);
+    } catch (err) {
+      throw new PlanVideoError(`could not read the dataset: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    let planResult;
+    try {
+      planResult = await planDataset({ prompt: req.prompt, schema }, { planDataset: deps.planDataset });
+    } catch (err) {
+      throw new PlanVideoError(err instanceof Error ? err.message : String(err));
+    }
+
+    let spec;
+    try {
+      spec =
+        planResult.plan.videoType === "time_series"
+          ? extractDataset(filePath, planResult.plan)
+          : extractDataset(filePath, planResult.plan);
+    } catch (err) {
+      throw new PlanVideoError(`could not extract dataset: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    const provenanceDescription = `Source: ${provenanceSource} (data plan: ${JSON.stringify(planResult.plan)})`;
+
+    return planResult.plan.videoType === "time_series"
+      ? finalizeTimeSeriesVideo(spec, req, provenanceDescription)
+      : finalizeBarRaceVideo(spec, req, provenanceDescription);
+  } finally {
+    cleanup?.();
+  }
+}
+
+// A local file needs no resolution at all; a Kaggle dataset needs
+// credentials, a real file listing, a file-selection decision (unless
+// the caller already named one), and a real download — all of it
+// unverified against a live Kaggle account (see kaggleDataset's own
+// doc comment on PlanVideoRequest). The downloaded file lands in a
+// throwaway temp dir, cleaned up by the caller's `finally` regardless
+// of how the rest of the pipeline turns out.
+async function resolveDatasetFile(
+  req: PlanVideoRequest,
+  deps: PlanVideoDeps,
+): Promise<{ filePath: string; cleanup?: () => void; provenanceSource: string }> {
+  if (req.datasetSource !== undefined) {
+    return { filePath: req.datasetSource, provenanceSource: req.datasetSource };
+  }
+
+  const kaggle = req.kaggleDataset!;
+  const credentials = deps.kaggleCredentials ?? kaggleCredentialsFromEnv();
+  if (!credentials) {
+    throw new PlanVideoError(
+      "a kaggleDataset request needs Kaggle credentials — set KAGGLE_USERNAME/KAGGLE_KEY, or pass kaggleCredentials explicitly.",
+    );
+  }
+
+  const listFiles = deps.listKaggleDatasetFiles ?? listKaggleDatasetFiles;
+  const download = deps.downloadKaggleFile ?? downloadKaggleFile;
+
+  let fileName = kaggle.fileName;
+  if (!fileName) {
+    let files;
+    try {
+      files = await listFiles(kaggle, credentials);
+    } catch (err) {
+      throw new PlanVideoError(`could not list Kaggle dataset files: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    try {
+      fileName = await selectDatasetFile(req.prompt!, files, { chooseFile: deps.chooseDatasetFile });
+    } catch (err) {
+      throw new PlanVideoError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  const tempDir = mkdtempSync(join(tmpdir(), "algoreel-kaggle-"));
+  let filePath: string;
+  try {
+    filePath = await download(kaggle, fileName, tempDir, credentials);
+  } catch (err) {
+    rmSync(tempDir, { recursive: true, force: true });
+    throw new PlanVideoError(`could not download Kaggle dataset file: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  return {
+    filePath,
+    cleanup: () => rmSync(tempDir, { recursive: true, force: true }),
+    provenanceSource: `kaggle:${kaggle.ownerSlug}/${kaggle.datasetSlug}/${fileName}`,
+  };
 }

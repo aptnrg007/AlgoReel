@@ -1,0 +1,37 @@
+# STATUS: paid escalation rung for src/data/selectDatasetFile.ts's
+# file-selection step — see select-dataset-file.yaml for the local rung
+# this stands in for. Only reached once the local rung has exhausted its
+# own attempts, and only when ANTHROPIC_API_KEY is actually set (mirrors
+# select-video-type.anthropic.yaml's own reasoning).
+name: select-dataset-file-anthropic
+
+model:
+  provider: anthropic
+  name: claude-sonnet-5
+  api_key: ${ANTHROPIC_API_KEY}
+  # No temperature field — claude-sonnet-5 rejects it as a request
+  # parameter (see select-algorithm.anthropic.yaml's own comment).
+
+instructions: |
+  A Kaggle dataset has more than one file. Given the user's request and
+  the list of file names (with sizes where known), pick the one file
+  that best matches what the request is asking for — usually the one
+  whose name most clearly names the entities/metric being asked about,
+  or the largest primary data file when several look like variants of
+  the same thing (e.g. prefer "data.csv" over "data_sample.csv" or a
+  README).
+
+  Only name a file that appears in the list you're given, spelled
+  exactly as shown — never invent a file name.
+
+  Answer only the JSON object the schema requires — no prose, no
+  markdown fences.
+
+output:
+  schema: ./schemas/dataset-file-choice.json
+  on_invalid: retry
+  max_retries: 2
+
+limits:
+  max_turns: 1
+  max_tokens: 128

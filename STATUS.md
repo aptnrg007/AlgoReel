@@ -770,3 +770,129 @@ Following the phased plan in `PLAN.md` §9:
   changes to `Video.tsx`/`Root.tsx` since Phase 8, and the planner does
   real deterministic-first, ladder-fallback-second classification across
   all four.
+
+- **Phase 10, step 1 — deterministic dataset inspection (done).** New
+  `src/data/inspectDataset.ts` reads a local CSV or JSON-array-of-objects
+  file and reports column names, an inferred type per column
+  (`numeric`/`categorical`/`date`, sampled from real values, never
+  guessed from a column's name), row count, and up to 5 real sample
+  rows — the only thing an agent will ever see of a dataset once step 2
+  wires it up, never the full file. Type inference samples up to 200
+  rows per column; date detection is deliberately narrow (ISO-shaped
+  only), and a plain year column classifies as numeric rather than
+  date, matching what `time_series`/`bar_race` actually need from a
+  period column.
+
+  Verified live on realistic data, not just hand-written fixtures: a
+  country/year/population/region CSV and a separate mission-launch CSV
+  with real ISO dates both classified correctly. 320/320 tests pass (8
+  new). No bugs found.
+
+- **Phase 10, step 2 — `DataPlan` and the `plan-dataset` agent (done).**
+  New `src/data/{types,dataPlanSchema,planDataset}.ts` and
+  `agents/plan-dataset.yaml`/`.anthropic.yaml` (same ladder shape as
+  `select-video-type.yaml`). The agent sees only a dataset's column
+  names/types/sample rows (never the whole file) and returns a
+  `DataPlan` — column names, filter values, a range, `topN` — never a
+  value read out of the data. `planDataset.ts` cross-checks every
+  referenced column name against the real schema and feeds an unknown
+  one back into the ladder's retry loop instead of letting it through.
+
+  **Two real bugs found live against actual `qwen3:8b`, neither caught
+  by the injected-deps unit tests first:** asked for "the top 3
+  countries," the agent added an unrequested `Region == "Asia"` filter
+  because the dataset's sample rows happened to all be Asian — fixed by
+  telling both agent configs and the wrapper's prompt that sample rows
+  are context only, never a basis for a filter. Separately, `range` only
+  existed for `time_series` in the first pass, so a `bar_race` request
+  naming a span had no legitimate way to express it — a real run
+  improvised two contradictory equality filters on the same period
+  column (`Year == "1990"` AND `Year == "2010"`, which can never match a
+  row) instead. Fixed by giving `bar_race` the same `range` field.
+
+  Verified live end to end after both fixes: the same request now
+  correctly produces `topN: 3` with a `range` on `Year` and no spurious
+  filter; a paired `time_series` request correctly produces a
+  `Country == "India"` filter plus the same kind of range. 326/326 tests
+  pass (6 new).
+
+- **Phase 10, steps 3-4 — deterministic data extractor + validation
+  (done).** New `src/data/extractDataset.ts`, plus `readDataset.ts`
+  (the CSV/JSON row-reading refactored out of `inspectDataset.ts` so
+  step 1 and step 3 can never parse a "row" differently). Takes a
+  `DataPlan` + the real file, applies filters/range with exact
+  string/number comparison, and emits a plain `TimeSeriesSpec`/
+  `BarRaceSpec` — the only place in Phase 10 a fact is ever produced,
+  and it's plain arithmetic, zero model calls. An empty value cell is a
+  real gap (row dropped, `fromWorldBank.ts`'s own discipline); a
+  non-empty non-numeric one is a hard error, not a silent drop.
+  `bar_race`'s final period list is the *intersection* of periods every
+  `topN`-selected entity actually covers, not the union — a gap in an
+  unselected entity never narrows the race, a gap in a selected one
+  does. Every extraction satisfies `validateTimeSeriesSpec`/
+  `validateBarRaceSpec` unchanged, confirmed by two integration tests.
+
+  No bugs found in the extractor itself. One apparent oddity while
+  checking a rendered frame (a value very close to, but not exactly,
+  the next real number, with the previous period's label still showing)
+  turned out to be pre-existing `BarRaceVideo.tsx` behavior predating
+  this phase — confirmed by hand-computing the exact interpolated
+  number and finding it matched precisely — not a Phase 10 regression.
+
+  Verified live end to end: `inspectDataset` → a real `planDataset` call
+  against `qwen3:8b` → `extractDataset` → a real render through the
+  production `Video` composition, correctly excluding the one country
+  outside the requested top 3. 345/345 tests pass (19 new).
+
+- **Phase 10, step 4 — wired into `planVideo.ts` (done).** A new
+  `datasetSource` field on `PlanVideoRequest` (a local file path,
+  requires `prompt`) skips `selectVideoType` entirely — one agent call,
+  not two, since `plan-dataset.yaml`'s `DataPlan` already carries the
+  video-type decision — and runs inspect → `planDataset` →
+  `extractDataset` → the *existing* validate/check_render/duration-repair
+  tail, pulled out of `planTimeSeriesVideo`/`planBarRaceVideo` into two
+  shared `finalize*` functions so nothing is duplicated. New
+  `--dataset=path` CLI flag.
+
+  **One real bug found live:** the first real CLI run (a real prompt,
+  a real dataset, no injected deps) failed `check_render` — raw
+  population figures blew the same label-width budget World Bank's raw
+  GDP once did (Phase 9 step 4). World Bank's fixed indicator-code
+  table doesn't apply to an arbitrary dataset, so `extractDataset.ts`
+  gained a magnitude-based version instead: ≥1e9 scales to billions,
+  ≥1e6 to millions, folded into `yAxis.unit`/`valueLabel` — a unit
+  conversion, never a changed fact, confined to this one file so
+  data/csv callers keep controlling their own units unchanged.
+
+  Verified live end to end through the real CLI: `"show a video of
+  India's population growth"` with a real 12-row dataset — real
+  `qwen3:8b` classification and column mapping, correct auto-scaling,
+  and the final rendered frame inspected directly (legible
+  "Population (billions)" axis, real 0.87 → 1.056 → 1.234 billion
+  growth). 357/357 tests pass (13 new).
+
+- **Phase 10, step 5 — Kaggle connector (done, with an explicit
+  caveat).** New `src/data/{kaggleTypes,kaggleClient,selectDatasetFile}.ts`
+  + `agents/select-dataset-file.yaml`/`.anthropic.yaml`. Auth via
+  Kaggle's documented Basic-auth scheme, lists a dataset's real files,
+  picks one (deterministically if there's only one real `.csv`/`.json`
+  candidate, a real ladder call otherwise), and downloads exactly that
+  file — never the whole dataset as a zip, so no zip-extraction
+  dependency is needed. `PlanVideoRequest.kaggleDataset` resolves to a
+  local file and rejoins step 4's exact same pipeline unchanged; a new
+  `--kaggle-owner=`/`--kaggle-dataset=`/`--kaggle-file=` CLI flag set
+  completes the entry point.
+
+  **The honest gap:** this environment has no Kaggle credentials, so —
+  unlike every other live-network integration in this project — this
+  connector was never run against a real Kaggle account. Built to
+  Kaggle's stable, long-documented public API, with the HTTP boundary
+  itself (URLs, auth headers, file writes) exercised against a mocked
+  `fetch` rather than just assumed, but "the real API actually answers
+  this shape" remains unconfirmed pending a real credential. 376/376
+  tests pass (26 new).
+
+  Phase 10's full pipeline is now in place end to end: a local file or
+  a Kaggle dataset, both joining the same `inspectDataset` →
+  `planDataset` → `extractDataset` → video-type planner → renderer
+  chain from there on.

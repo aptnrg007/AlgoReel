@@ -14,7 +14,13 @@ const USAGE =
   "  csv (timeline):     --csv=path.csv --title=... (CSV columns are fixed: date,title)\n" +
   '  world bank:         a prompt naming a known country + indicator (e.g. "GDP timelapse for Brazil") ' +
   "fetches automatically; --world-bank-country=XX --world-bank-indicator=CODE overrides/extends that " +
-  "for anything outside the small built-in table, optionally with --world-bank-start-year=/--world-bank-end-year=";
+  "for anything outside the small built-in table, optionally with --world-bank-start-year=/--world-bank-end-year=\n" +
+  "  dataset (Phase 10):  --dataset=path.csv|path.json (an arbitrary local file, schema unknown in advance — " +
+  "the prompt is required here too, it's what a real plan-dataset agent call maps onto the file's columns)\n" +
+  "  kaggle (Phase 10):   --kaggle-owner=X --kaggle-dataset=Y [--kaggle-file=name.csv] " +
+  "(needs KAGGLE_USERNAME/KAGGLE_KEY in the environment; --kaggle-file skips file-listing when the dataset " +
+  "has more than one file — otherwise a real agent call picks one). Unverified against a real Kaggle account " +
+  "in this repo's own testing — see PLAN.md Phase 10 step 5.";
 
 function parseFlags(argv: string[]): Record<string, string> {
   const flags: Record<string, string> = {};
@@ -60,6 +66,10 @@ async function main(): Promise<void> {
             startYear: flags["world-bank-start-year"] ? Number(flags["world-bank-start-year"]) : undefined,
             endYear: flags["world-bank-end-year"] ? Number(flags["world-bank-end-year"]) : undefined,
           }
+        : undefined,
+      datasetSource: flags.dataset,
+      kaggleDataset: flags["kaggle-owner"]
+        ? { ownerSlug: flags["kaggle-owner"]!, datasetSlug: flags["kaggle-dataset"]!, fileName: flags["kaggle-file"] }
         : undefined,
       targetDurationSec: duration,
     });

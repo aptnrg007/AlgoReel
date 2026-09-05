@@ -1,8 +1,25 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import { PlanVideoError, planVideo } from "./planVideo";
 import type { StorySpec } from "../spec/types";
+
+async function withFile(name: string, contents: string, fn: (path: string) => Promise<void>): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), "plan-video-dataset-test-"));
+  const path = join(dir, name);
+  writeFileSync(path, contents);
+  try {
+    await fn(path);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const POPULATION_CSV =
+  "Country,Year,Population\n" + "India,1990,870000000\n" + "India,2000,1056000000\n" + "India,2010,1234000000\n" + "China,1990,1176000000\n" + "China,2000,1290000000\n" + "China,2010,1341000000\n";
 
 const CANNED_STORY_SPEC: StorySpec = {
   version: 1,
@@ -346,4 +363,250 @@ test("a too-short timeline duration is repaired to the minimum, not rejected", a
   const plan = await planVideo({ data, targetDurationSec: 0.1 });
   assert.equal(plan.videoType, "timeline");
   assert.ok(plan.targetDurationSec >= 1);
+});
+
+// --- Phase 10: datasetSource ------------------------------------------
+
+test("a datasetSource request skips selectVideoType entirely — the DataPlan's own videoType decides", async () => {
+  await withFile("pop.csv", POPULATION_CSV, async (path) => {
+    const plan = await planVideo(
+      { prompt: "show India's population over time", datasetSource: path },
+      {
+        chooseVideoType: () => {
+          throw new Error("selectVideoType should never be called for a datasetSource request");
+        },
+        planDataset: async () =>
+          JSON.stringify({
+            videoType: "time_series",
+            xColumn: "Year",
+            yColumns: ["Population"],
+            filters: [{ column: "Country", value: "India" }],
+          }),
+      },
+    );
+    assert.equal(plan.videoType, "time_series");
+    if (plan.videoType === "time_series") {
+      assert.deepEqual(plan.payload.xAxis.values, [1990, 2000, 2010]);
+      // Auto-scaled to billions — see extractDataset.test.ts's dedicated
+      // scaling tests for the threshold logic itself.
+      assert.deepEqual(plan.payload.series, [{ name: "Population", values: [0.87, 1.056, 1.234] }]);
+    }
+    assert.match(plan.description ?? "", new RegExp(`Source: ${path}`));
+  });
+});
+
+test("a datasetSource request producing a bar_race DataPlan produces a BarRaceVideoPlan", async () => {
+  await withFile("pop.csv", POPULATION_CSV, async (path) => {
+    const plan = await planVideo(
+      { prompt: "top countries by population", datasetSource: path },
+      {
+        planDataset: async () =>
+          JSON.stringify({ videoType: "bar_race", entityColumn: "Country", periodColumn: "Year", valueColumn: "Population" }),
+      },
+    );
+    assert.equal(plan.videoType, "bar_race");
+    if (plan.videoType === "bar_race") {
+      assert.deepEqual(
+        plan.payload.entries.map((e) => e.name).sort(),
+        ["China", "India"],
+      );
+    }
+  });
+});
+
+test("datasetSource without a prompt is a clear PlanVideoError, not a hallucinated column mapping", async () => {
+  await withFile("pop.csv", POPULATION_CSV, async (path) => {
+    await assert.rejects(() => planVideo({ datasetSource: path }), /also needs a prompt/);
+  });
+});
+
+test("a datasetSource pointing at a nonexistent file is a clear PlanVideoError, not a crash", async () => {
+  await assert.rejects(
+    () => planVideo({ prompt: "population over time", datasetSource: "/no/such/file.csv" }),
+    /could not read the dataset/,
+  );
+});
+
+test("a datasetSource extraction failure (e.g. an unmatched filter) is a clear PlanVideoError", async () => {
+  await withFile("pop.csv", POPULATION_CSV, async (path) => {
+    await assert.rejects(
+      () =>
+        planVideo(
+          { prompt: "Brazil's population over time", datasetSource: path },
+          {
+            planDataset: async () =>
+              JSON.stringify({
+                videoType: "time_series",
+                xColumn: "Year",
+                yColumns: ["Population"],
+                filters: [{ column: "Country", value: "Brazil" }],
+              }),
+          },
+        ),
+      /could not extract dataset/,
+    );
+  });
+});
+
+test("a too-short duration on a datasetSource request is repaired to the minimum, not rejected", async () => {
+  await withFile("pop.csv", POPULATION_CSV, async (path) => {
+    const plan = await planVideo(
+      { prompt: "India's population over time", datasetSource: path, targetDurationSec: 0.1 },
+      {
+        planDataset: async () =>
+          JSON.stringify({
+            videoType: "time_series",
+            xColumn: "Year",
+            yColumns: ["Population"],
+            filters: [{ column: "Country", value: "India" }],
+          }),
+      },
+    );
+    assert.ok(plan.targetDurationSec >= 1);
+  });
+});
+
+test("an explicit description overrides datasetSource provenance rather than being silently discarded", async () => {
+  await withFile("pop.csv", POPULATION_CSV, async (path) => {
+    const plan = await planVideo(
+      { prompt: "India's population over time", datasetSource: path, description: "my own description" },
+      {
+        planDataset: async () =>
+          JSON.stringify({
+            videoType: "time_series",
+            xColumn: "Year",
+            yColumns: ["Population"],
+            filters: [{ column: "Country", value: "India" }],
+          }),
+      },
+    );
+    assert.equal(plan.description, "my own description");
+  });
+});
+
+// --- Phase 10 step 5: kaggleDataset (mocked — no real Kaggle account in
+// this environment; see kaggleDataset's own doc comment on
+// PlanVideoRequest) ---------------------------------------------------
+
+const KAGGLE_REF = { ownerSlug: "someone", datasetSlug: "world-population" };
+const CREDENTIALS = { username: "u", key: "k" };
+
+test("a kaggleDataset request with an explicit fileName skips file-listing entirely and downloads that file", async () => {
+  let downloadedFileName: string | undefined;
+  const plan = await planVideo(
+    { prompt: "India's population over time", kaggleDataset: { ...KAGGLE_REF, fileName: "population.csv" } },
+    {
+      kaggleCredentials: CREDENTIALS,
+      listKaggleDatasetFiles: async () => {
+        throw new Error("should not be called when fileName is already given");
+      },
+      downloadKaggleFile: async (_ref, fileName, destDir) => {
+        downloadedFileName = fileName;
+        const dest = join(destDir, fileName);
+        writeFileSync(dest, POPULATION_CSV);
+        return dest;
+      },
+      planDataset: async () =>
+        JSON.stringify({
+          videoType: "time_series",
+          xColumn: "Year",
+          yColumns: ["Population"],
+          filters: [{ column: "Country", value: "India" }],
+        }),
+    },
+  );
+  assert.equal(downloadedFileName, "population.csv");
+  assert.equal(plan.videoType, "time_series");
+  assert.match(plan.description ?? "", /Source: kaggle:someone\/world-population\/population\.csv/);
+});
+
+test("a kaggleDataset request with no fileName picks the single real candidate deterministically, with zero file-selection model calls", async () => {
+  const plan = await planVideo(
+    { prompt: "India's population over time", kaggleDataset: KAGGLE_REF },
+    {
+      kaggleCredentials: CREDENTIALS,
+      listKaggleDatasetFiles: async () => [{ name: "population.csv" }, { name: "README.md" }],
+      chooseDatasetFile: () => {
+        throw new Error("should not be called — only one recognized-extension file exists");
+      },
+      downloadKaggleFile: async (_ref, fileName, destDir) => {
+        const dest = join(destDir, fileName);
+        writeFileSync(dest, POPULATION_CSV);
+        return dest;
+      },
+      planDataset: async () =>
+        JSON.stringify({
+          videoType: "time_series",
+          xColumn: "Year",
+          yColumns: ["Population"],
+          filters: [{ column: "Country", value: "India" }],
+        }),
+    },
+  );
+  assert.equal(plan.videoType, "time_series");
+});
+
+test("a kaggleDataset request with multiple candidate files goes through selectDatasetFile's ladder", async () => {
+  let downloadedFileName: string | undefined;
+  const plan = await planVideo(
+    { prompt: "India's population over time", kaggleDataset: KAGGLE_REF },
+    {
+      kaggleCredentials: CREDENTIALS,
+      listKaggleDatasetFiles: async () => [{ name: "population.csv" }, { name: "gdp.csv" }],
+      chooseDatasetFile: async () => JSON.stringify({ fileName: "population.csv" }),
+      downloadKaggleFile: async (_ref, fileName, destDir) => {
+        downloadedFileName = fileName;
+        const dest = join(destDir, fileName);
+        writeFileSync(dest, POPULATION_CSV);
+        return dest;
+      },
+      planDataset: async () =>
+        JSON.stringify({
+          videoType: "time_series",
+          xColumn: "Year",
+          yColumns: ["Population"],
+          filters: [{ column: "Country", value: "India" }],
+        }),
+    },
+  );
+  assert.equal(downloadedFileName, "population.csv");
+  assert.equal(plan.videoType, "time_series");
+});
+
+test("a kaggleDataset request with no credentials available is a clear PlanVideoError, not a crash", async () => {
+  const originalUser = process.env.KAGGLE_USERNAME;
+  const originalKey = process.env.KAGGLE_KEY;
+  delete process.env.KAGGLE_USERNAME;
+  delete process.env.KAGGLE_KEY;
+  try {
+    await assert.rejects(
+      () => planVideo({ prompt: "India's population over time", kaggleDataset: KAGGLE_REF }),
+      /needs Kaggle credentials/,
+    );
+  } finally {
+    if (originalUser === undefined) delete process.env.KAGGLE_USERNAME;
+    else process.env.KAGGLE_USERNAME = originalUser;
+    if (originalKey === undefined) delete process.env.KAGGLE_KEY;
+    else process.env.KAGGLE_KEY = originalKey;
+  }
+});
+
+test("a Kaggle download failure surfaces as a clear PlanVideoError, not an uncaught exception", async () => {
+  await assert.rejects(
+    () =>
+      planVideo(
+        { prompt: "India's population over time", kaggleDataset: { ...KAGGLE_REF, fileName: "population.csv" } },
+        {
+          kaggleCredentials: CREDENTIALS,
+          downloadKaggleFile: async () => {
+            throw new Error("Kaggle API returned 404 Not Found");
+          },
+        },
+      ),
+    /could not download Kaggle dataset file/,
+  );
+});
+
+test("kaggleDataset without a prompt is a clear PlanVideoError, not a hallucinated column mapping", async () => {
+  await assert.rejects(() => planVideo({ kaggleDataset: KAGGLE_REF }), /also needs a prompt/);
 });

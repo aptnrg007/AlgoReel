@@ -1,0 +1,44 @@
+# STATUS: local rung of src/data/selectDatasetFile.ts — PLAN.md Phase 10
+# step 5 (the Kaggle connector)'s "one more small agent decision, which
+# file." Only invoked when a Kaggle dataset has more than one file with
+# a recognized extension (.csv/.json) — a single obvious candidate is
+# picked deterministically, no model call at all
+# (selectDatasetFile.ts's own comment). This agent never sees file
+# *contents*, only names and sizes — the same "metadata only" boundary
+# inspectDataset.ts/plan-dataset.yaml already respect for a dataset's
+# actual rows.
+#
+# Deliberately toolless, same reasons select-video-type.yaml/
+# plan-dataset.yaml already document for their own toolless design.
+name: select-dataset-file
+
+model:
+  provider: ollama
+  name: qwen3:8b
+  num_ctx: 8192
+  temperature: 0.2
+  think: false
+
+instructions: |
+  A Kaggle dataset has more than one file. Given the user's request and
+  the list of file names (with sizes where known), pick the one file
+  that best matches what the request is asking for — usually the one
+  whose name most clearly names the entities/metric being asked about,
+  or the largest primary data file when several look like variants of
+  the same thing (e.g. prefer "data.csv" over "data_sample.csv" or a
+  README).
+
+  Only name a file that appears in the list you're given, spelled
+  exactly as shown — never invent a file name.
+
+  Answer only the JSON object the schema requires — no prose, no
+  markdown fences.
+
+output:
+  schema: ./schemas/dataset-file-choice.json
+  on_invalid: retry
+  max_retries: 2
+
+limits:
+  max_turns: 1
+  max_tokens: 256
