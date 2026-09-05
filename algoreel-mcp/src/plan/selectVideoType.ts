@@ -15,11 +15,10 @@ const MAX_SELECT_ATTEMPTS = 3;
 // Vocabulary strong enough to decide deterministically without a model call
 // — the same "safe enough to skip the model" bar keywordMatchAlgorithm
 // already applies to DSA topics, drawn directly from PLAN.md's own
-// examples ("GDP values by year", "countries moving up and down the GDP
-// rankings"). Deliberately narrow: this is not a general NLP classifier,
-// it's a fast path for the obvious cases — anything it doesn't recognize
-// falls through to the model ladder below, which handles open-ended
-// phrasing neither list can enumerate.
+// examples ("GDP values by year"). Deliberately narrow: this is not a
+// general NLP classifier, it's a fast path for the obvious cases —
+// anything it doesn't recognize falls through to the model ladder below,
+// which handles open-ended phrasing neither list can enumerate.
 const TIME_SERIES_KEYWORDS = [
   "gdp",
   "timelapse",
@@ -31,7 +30,6 @@ const TIME_SERIES_KEYWORDS = [
   "population growth",
   "stock price",
   "revenue growth",
-  "rankings",
 ];
 // "from 1990 to 2025" / "between 1990 and 2025" / "1990-2025" — a year
 // range is a strong, independent signal a request is about data changing
@@ -43,15 +41,46 @@ function looksLikeTimeSeriesRequest(prompt: string): boolean {
   return TIME_SERIES_KEYWORDS.some((kw) => lower.includes(kw)) || YEAR_RANGE_PATTERN.test(prompt);
 }
 
+// PLAN.md §9 Phase 9 step 2's own examples ("countries moving up and down
+// the GDP rankings", "who's biggest"). "rankings"/"ranking" moved here
+// from TIME_SERIES_KEYWORDS once bar_race existed as a distinct type — a
+// request literally about rankings is better served by entities visibly
+// reordering than by a line chart.
+const BAR_RACE_KEYWORDS = [
+  "race",
+  "ranking",
+  "rankings",
+  "leaderboard",
+  "biggest economies",
+  "largest economies",
+  "moving up and down",
+  "who's biggest",
+  "overtak", // overtake / overtaking / overtook
+];
+
+function looksLikeBarRaceRequest(prompt: string): boolean {
+  const lower = prompt.toLowerCase();
+  return BAR_RACE_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
 // Structural detection of already-supplied data (PLAN.md §15: support
 // supplied data first, don't make the planner responsible for fetching
 // or recognizing it via prose) — a candidate this shape is unambiguously
-// meant to become a TimeSeriesSpec regardless of what any prompt says.
+// meant to become that video type's spec regardless of what any prompt
+// says. TimeSeriesSpec's `series` and BarRaceSpec's `entries` are the
+// distinguishing field — the two shapes can't collide.
 function looksLikeTimeSeriesData(data: unknown): boolean {
   if (typeof data !== "object" || data === null) return false;
   const d = data as Record<string, unknown>;
   const xAxis = d.xAxis as Record<string, unknown> | undefined;
   return typeof xAxis === "object" && xAxis !== null && Array.isArray(xAxis.values) && Array.isArray(d.series);
+}
+
+function looksLikeBarRaceData(data: unknown): boolean {
+  if (typeof data !== "object" || data === null) return false;
+  const d = data as Record<string, unknown>;
+  const xAxis = d.xAxis as Record<string, unknown> | undefined;
+  return typeof xAxis === "object" && xAxis !== null && Array.isArray(xAxis.values) && Array.isArray(d.entries);
 }
 
 export interface SelectVideoTypeRequest {
@@ -88,27 +117,46 @@ function selectionRungs(): Rung[] {
 export async function selectVideoType(req: SelectVideoTypeRequest, deps: SelectVideoTypeDeps = {}): Promise<SelectVideoTypeResult> {
   const notes: string[] = [];
 
-  if (req.csv !== undefined) {
-    notes.push("csv input supplied — time_series, no model call needed");
-    return { videoType: "time_series", notes };
+  if (req.data !== undefined && looksLikeBarRaceData(req.data)) {
+    notes.push("supplied data already matches a BarRaceSpec shape (xAxis + entries) — bar_race, no model call needed");
+    return { videoType: "bar_race", notes };
   }
   if (req.data !== undefined && looksLikeTimeSeriesData(req.data)) {
     notes.push("supplied data already matches a TimeSeriesSpec shape (xAxis + series) — time_series, no model call needed");
     return { videoType: "time_series", notes };
   }
 
+  if (req.csv !== undefined) {
+    // csv carries no type info of its own — a prompt given alongside it
+    // can still say which type it's for; absent that, time_series stays
+    // the default (the more common case, and the one this existed for
+    // before bar_race did).
+    if (req.prompt && looksLikeBarRaceRequest(req.prompt) && !looksLikeTimeSeriesRequest(req.prompt)) {
+      notes.push("csv input with a bar-race-worded prompt — bar_race, no model call needed");
+      return { videoType: "bar_race", notes };
+    }
+    notes.push("csv input supplied — time_series, no model call needed");
+    return { videoType: "time_series", notes };
+  }
+
   if (!req.prompt) {
-    throw new Error("selectVideoType needs a prompt, or data/csv shaped like a TimeSeriesSpec, to decide a video type");
+    throw new Error("selectVideoType needs a prompt, or data/csv shaped like a TimeSeriesSpec/BarRaceSpec, to decide a video type");
   }
 
   const dsaMatch = keywordMatchAlgorithm(req.prompt) !== undefined;
   const timeSeriesMatch = looksLikeTimeSeriesRequest(req.prompt);
+  const barRaceMatch = looksLikeBarRaceRequest(req.prompt);
+  const matchCount = [dsaMatch, timeSeriesMatch, barRaceMatch].filter(Boolean).length;
 
-  if (dsaMatch && !timeSeriesMatch) {
-    notes.push("matched a known algorithm by keyword — dsa, no model call needed");
-    return { videoType: "dsa", notes };
-  }
-  if (timeSeriesMatch && !dsaMatch) {
+  if (matchCount === 1) {
+    if (dsaMatch) {
+      notes.push("matched a known algorithm by keyword — dsa, no model call needed");
+      return { videoType: "dsa", notes };
+    }
+    if (barRaceMatch) {
+      notes.push("matched bar-race vocabulary (ranking/race/leaderboard) — bar_race, no model call needed");
+      return { videoType: "bar_race", notes };
+    }
     notes.push("matched time-series vocabulary/year-range — time_series, no model call needed");
     return { videoType: "time_series", notes };
   }
@@ -119,8 +167,10 @@ export async function selectVideoType(req: SelectVideoTypeRequest, deps: SelectV
       `Request: ${req.prompt}\n\n` +
       `Decide what kind of video this should be:\n` +
       `- "dsa": explaining an algorithm or data structure (sorting, searching, graph traversal, tree operations, ...)\n` +
-      `- "time_series": animating numeric data changing over time (a timelapse/trend chart — e.g. GDP over years, ` +
-      `population growth, rankings changing over time)${correction}`
+      `- "time_series": animating numeric data changing over time (a timelapse/trend chart for one thing or a few ` +
+      `things — e.g. GDP over years, population growth)\n` +
+      `- "bar_race": entities ranked and reordering over time (a "bar chart race" — e.g. countries' GDP rankings ` +
+      `changing, who's biggest changing hands)${correction}`
     );
   };
 
@@ -131,7 +181,7 @@ export async function selectVideoType(req: SelectVideoTypeRequest, deps: SelectV
       (raw) => videoTypeChoiceSchema.parse(parseJsonAnswer(raw)),
       deps.chooseVideoType ? { generateText: deps.chooseVideoType } : {},
     );
-    notes.push(`ambiguous request (matched ${dsaMatch ? "both" : "neither"} deterministic signal) — selected "${result.value.videoType}" via ${result.agentPath}`);
+    notes.push(`ambiguous request (${matchCount} deterministic signals matched) — selected "${result.value.videoType}" via ${result.agentPath}`);
     return { videoType: result.value.videoType, rung: result.rungIndex, notes };
   } catch (err) {
     if (err instanceof LadderExhaustedError) {

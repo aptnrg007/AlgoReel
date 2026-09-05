@@ -1,0 +1,15 @@
+{
+  "title": "Largest Economies by GDP",
+  "xAxis": {
+    "label": "Year",
+    "values": [1990, 1995, 2000, 2005, 2010, 2015, 2020]
+  },
+  "valueLabel": "GDP (USD billions)",
+  "entries": [
+    { "name": "USA", "values": [5900, 7600, 10250, 13040, 14990, 18220, 21430] },
+    { "name": "Japan", "values": [3130, 5450, 4970, 4830, 5700, 4440, 5050] },
+    { "name": "China", "values": [360, 730, 1210, 2290, 6100, 11060, 14720] },
+    { "name": "Germany", "values": [1770, 2590, 1950, 2860, 3400, 3360, 3860] },
+    { "name": "India", "values": [320, 360, 480, 830, 1670, 2100, 2670] }
+  ]
+}

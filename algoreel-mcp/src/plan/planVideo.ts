@@ -1,5 +1,6 @@
 import { toDsaVideoPlan } from "./fromStorySpec";
 import { toTimeSeriesVideoPlan } from "./fromTimeSeriesSpec";
+import { toBarRaceVideoPlan } from "./fromBarRaceSpec";
 import { selectVideoType, type SelectVideoTypeDeps } from "./selectVideoType";
 import type { VideoPlan } from "./types";
 import { checkTimeSeriesRender, minimumSufficientDurationSec } from "../spec/timeSeries/checkRender";
@@ -7,6 +8,11 @@ import type { CsvParseOptions } from "../spec/timeSeries/fromCsv";
 import { parseCsvToTimeSeriesSpec } from "../spec/timeSeries/fromCsv";
 import type { TimeSeriesSpec } from "../spec/timeSeries/types";
 import { validateTimeSeriesSpec } from "../spec/timeSeries/validate";
+import { checkBarRaceRender, MIN_DURATION_SEC as BAR_RACE_MIN_DURATION_SEC } from "../spec/barRace/checkRender";
+import type { CsvParseOptions as BarRaceCsvParseOptions } from "../spec/barRace/fromCsv";
+import { parseCsvToBarRaceSpec } from "../spec/barRace/fromCsv";
+import type { BarRaceSpec } from "../spec/barRace/types";
+import { validateBarRaceSpec } from "../spec/barRace/validate";
 import { ensureSpec, type EnsureSpecDeps } from "../spec/ensureSpec";
 
 export class PlanVideoError extends Error {}
@@ -30,11 +36,14 @@ export interface PlanVideoRequest {
   // the planner does not fetch external data itself, so this (or csv) must
   // be supplied by the caller for any time_series video.
   data?: unknown;
-  // Raw CSV text, normalized via fromCsv.ts. Requires csvOptions.
+  // Raw CSV text, normalized via the classified type's own fromCsv.ts.
+  // Which options are required depends on what selectVideoType decides
+  // this csv is for — supply the one matching field.
   csv?: string;
   csvOptions?: CsvParseOptions;
-  // time_series only — TimeSeriesSpec carries no duration of its own
-  // (plan/types.ts's TimeSeriesVideoPlan comment).
+  barRaceCsvOptions?: BarRaceCsvParseOptions;
+  // time_series/bar_race only — neither spec carries a duration of its
+  // own (plan/types.ts's *VideoPlan comments).
   targetDurationSec?: number;
   description?: string;
 }
@@ -70,11 +79,18 @@ export async function planVideo(req: PlanVideoRequest, deps: PlanVideoDeps = {})
 
   if (!req.data && req.csv === undefined) {
     throw new PlanVideoError(
-      "a time-series video needs data — this planner does not fetch external data itself (PLAN.md §15). " +
-        "Supply it via `data` (a TimeSeriesSpec-shaped object) or `csv` (a CSV string, with `csvOptions`).",
+      `a ${classification.videoType} video needs data — this planner does not fetch external data itself (PLAN.md §15). ` +
+        "Supply it via `data` (a spec-shaped object) or `csv` (a CSV string, with the matching csvOptions field).",
     );
   }
 
+  if (classification.videoType === "bar_race") {
+    return planBarRaceVideo(req);
+  }
+  return planTimeSeriesVideo(req);
+}
+
+async function planTimeSeriesVideo(req: PlanVideoRequest): Promise<VideoPlan> {
   let candidate: unknown;
   if (req.csv !== undefined) {
     if (!req.csvOptions) {
@@ -117,4 +133,46 @@ export async function planVideo(req: PlanVideoRequest, deps: PlanVideoDeps = {})
   }
 
   return toTimeSeriesVideoPlan(spec, { targetDurationSec, description: req.description });
+}
+
+async function planBarRaceVideo(req: PlanVideoRequest): Promise<VideoPlan> {
+  let candidate: unknown;
+  if (req.csv !== undefined) {
+    if (!req.barRaceCsvOptions) {
+      throw new PlanVideoError("csv input requires barRaceCsvOptions: { title, xAxisLabel, valueLabel }");
+    }
+    try {
+      candidate = parseCsvToBarRaceSpec(req.csv, req.barRaceCsvOptions);
+    } catch (err) {
+      throw new PlanVideoError(`could not parse csv: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  } else {
+    candidate = req.data;
+  }
+
+  const validation = validateBarRaceSpec(candidate);
+  if (!validation.valid) {
+    throw new PlanVideoError(`supplied data is invalid: ${validation.errors.join("; ")}`);
+  }
+  const spec = candidate as BarRaceSpec;
+  let targetDurationSec = req.targetDurationSec ?? DEFAULT_TARGET_DURATION_SEC;
+  let check = checkBarRaceRender(spec, targetDurationSec);
+
+  // Same "widen the duration once, never touch data" repair as
+  // time_series's — bar_race only has one duration-shaped code so far
+  // (no reveal-pacing check yet, since it interpolates continuously
+  // rather than revealing discrete points).
+  if (check.failures.some((f) => f.code === "duration-too-short")) {
+    if (BAR_RACE_MIN_DURATION_SEC > targetDurationSec) {
+      targetDurationSec = BAR_RACE_MIN_DURATION_SEC;
+      check = checkBarRaceRender(spec, targetDurationSec);
+    }
+  }
+
+  if (!check.pass) {
+    const errors = check.failures.filter((f) => f.severity === "error").map((f) => f.message);
+    throw new PlanVideoError(`supplied data fails check_render: ${errors.join("; ")}`);
+  }
+
+  return toBarRaceVideoPlan(spec, { targetDurationSec, description: req.description });
 }

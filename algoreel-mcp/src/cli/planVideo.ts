@@ -8,7 +8,9 @@ import { readFileSync } from "node:fs";
 import { PlanVideoError, planVideo } from "../plan/planVideo";
 
 const USAGE =
-  'usage: planVideo.ts "<prompt>" [--data=path.json] [--csv=path.csv --title=... --x-label=... --y-label=... [--y-unit=...]] [--duration=20]';
+  'usage: planVideo.ts "<prompt>" [--data=path.json] [--duration=20]\n' +
+  "  csv (time_series):  --csv=path.csv --title=... --x-label=... --y-label=... [--y-unit=...]\n" +
+  "  csv (bar_race):     --csv=path.csv --title=... --x-label=... --value-label=...";
 
 function parseFlags(argv: string[]): Record<string, string> {
   const flags: Record<string, string> = {};
@@ -33,12 +35,18 @@ async function main(): Promise<void> {
     const csv = flags.csv ? readFileSync(flags.csv, "utf8") : undefined;
     const duration = flags.duration ? Number(flags.duration) : undefined;
 
+    // Which of these two actually gets used depends on planVideo's own
+    // classification of the request — supplying both is harmless, since
+    // only the branch that's actually taken ever reads its matching field.
     const plan = await planVideo({
       prompt,
       data,
       csv,
       csvOptions: csv
         ? { title: flags.title ?? prompt, xAxisLabel: flags["x-label"] ?? "", yAxisLabel: flags["y-label"] ?? "", yAxisUnit: flags["y-unit"] }
+        : undefined,
+      barRaceCsvOptions: csv
+        ? { title: flags.title ?? prompt, xAxisLabel: flags["x-label"] ?? "", valueLabel: flags["value-label"] ?? "" }
         : undefined,
       targetDurationSec: duration,
     });

@@ -6,5 +6,5 @@ import { z } from "zod";
 // scoped to the two video types that actually have implementations
 // (src/plan/types.ts's VideoType comment).
 export const videoTypeChoiceSchema = z.object({
-  videoType: z.enum(["dsa", "time_series"]),
+  videoType: z.enum(["dsa", "time_series", "bar_race"]),
 });

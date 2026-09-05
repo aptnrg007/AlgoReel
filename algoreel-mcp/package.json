@@ -13,6 +13,8 @@
     "render:bst-insert": "remotion render remotion/index.ts BstInsert out/bst-insert.mp4",
     "render:time-series-demo": "remotion render remotion/index.ts TimeSeriesDemo out/time-series-demo.mp4",
     "render:time-series-cli": "tsx src/cli/renderTimeSeries.ts specs/time-series/time-series-demo.json --duration=20",
+    "render:bar-race-demo": "remotion render remotion/index.ts BarRaceDemo out/bar-race-demo.mp4",
+    "render:bar-race-cli": "tsx src/cli/renderBarRace.ts specs/bar-race/bar-race-demo.json --duration=20",
     "generate:schema": "tsx scripts/generate-story-spec-schema.ts",
     "studio": "remotion studio remotion/index.ts",
     "test": "node --import tsx --test --test-concurrency=1 $(find src remotion -name '*.test.ts' | sort)"

@@ -1031,20 +1031,67 @@ Planned, in priority order:
    successfully both times, confirmed live through `planVideo` +
    `renderVideo` end to end. 201/201 tests pass.
 
-2. **`bar_race` as the third video type**, via §27's recipe exactly:
-   `src/spec/barRace/{types,schema,validate,checkRender}.ts`,
+2. **`bar_race` as the third video type (done).** Built exactly via §27's
+   recipe: `src/spec/barRace/{types,schema,validate,checkRender}.ts`,
    `remotion/primitives/{barRaceLayout.ts,BarRaceView.tsx}`,
    `remotion/BarRaceVideo.tsx`, one new `VIDEO_TYPES` entry, a demo spec
-   (e.g. top-5 country GDP by year, reordering as ranks change) and
-   `render:bar-race-demo` script, plus a `selectVideoType.ts` signal
-   ("ranking", "who's biggest", "moving up and down") and a
-   `select-video-type.yaml` prompt update. The real test this type
-   provides that `time_series` didn't: entities *change rank* and
-   therefore *change vertical position* frame to frame, not just value —
-   a genuinely different layout problem (interpolating a bar's position,
-   not just its length) than anything the registry has handled yet.
-   *Exit:* a real render, inspected frame-by-frame the way every prior
-   video type was, showing bars visibly reordering as ranks change.
+   (top-5 country GDP 1990-2020, reordering as China overtakes Japan and
+   Germany) with `render:bar-race-demo`/`render:bar-race-cli` scripts, a
+   CSV normalizer (`barRace/fromCsv.ts`, same shape as `timeSeries/
+   fromCsv.ts`), a CLI (`renderBarRace.ts`, mirrors `renderTimeSeries.ts`),
+   and `selectVideoType.ts`/`select-video-type.yaml` updated for a real
+   three-way classification (`dsa`/`time_series`/`bar_race`) rather than
+   the binary one Phase 8 step 4 built — `"rankings"` moved from
+   `TIME_SERIES_KEYWORDS` to a new `BAR_RACE_KEYWORDS` list once bar_race
+   existed as a more specific match for it. `Video.tsx` needed **zero
+   changes** to add this third type — confirmed by `tsc --noEmit` passing
+   with no edits to it, the concrete proof §27's registry recipe was
+   actually generalized, not just designed to look like it was.
+
+   The real test this type provides that `time_series` didn't: entities
+   *change rank* and therefore *change vertical position* frame to frame,
+   not just value — solved with continuous interpolation
+   (`stepPosition`/`interpolatedValue` in `barRaceLayout.ts`) rather than
+   `time_series`'s discrete point-reveal, so bars visibly slide past each
+   other as values cross rather than jump-cutting between per-step ranks.
+   Colors are keyed to each entry's fixed `entryIndex` (its position in
+   the spec, never its current `rank`) — confirmed live: China's bar stays
+   the same color across all seven years even as it climbs from 4th to
+   2nd place, exactly the dataviz skill's "color follows the entity, never
+   its rank" rule made testable.
+
+   **Two real bugs found live, both past clean type-checks and unit
+   tests, and both fixed the same way this project always fixes them —
+   by rendering and actually looking:**
+   - The first render (25 fixed unit tests passing, `tsc --noEmit`
+     clean) showed entities correctly re-ranking and colors correctly
+     staying put — genuinely right on the first real attempt, unlike
+     step 1's label-thinning bug. But a closer look at a mid-transition
+     frame (progress 0.75 between 2010 and 2015) found a second, subtler
+     bug: the frame was labeled "2015" while showing China at 8.6k — not
+     China's real 2015 GDP (11.06k), but a blend halfway from 2010's real
+     number toward 2015's, because `currentStepIndex` rounded to the
+     *nearest* whole step while `interpolatedValue` was still ramping
+     from the previous one. A rendered frame asserting a specific year's
+     real number when it wasn't actually that number yet is exactly the
+     kind of factual error this project's determinism principle exists
+     to rule out — this was a correctness bug, not a cosmetic one. Fixed
+     by keeping the displayed step on the *lower* bound of the current
+     transition (the last step whose real values have actually been
+     reached) and advancing only once the interpolation hits `frac === 1`
+     — confirmed live: re-rendering the exact transition landed both the
+     label and the interpolated numbers exactly on 2010's real values
+     mid-transition, and exactly on 2015's real values (18.2k/11.1k,
+     matching the source data exactly) the instant the animation reaches
+     that step.
+
+   *Exit, met:* real renders at multiple frames (start, two mid-
+   transitions, end) inspected directly, confirming correct re-ranking,
+   stable per-entity colors, and a label/value pairing that's never
+   ahead of what the numbers actually represent; the CSV and JSON CLI
+   paths and the real three-way planner classification (verified against
+   actual `qwen3:8b`, not injected deps) both closed the full loop to a
+   real rendered mp4. 244/244 tests pass.
 
 3. **Deterministic event annotation**, for `time_series` first
    (extends to `bar_race` once it exists). A pure function of the

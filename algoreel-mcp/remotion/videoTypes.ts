@@ -2,10 +2,13 @@ import type { ComponentType } from "react";
 import { buildTimeline } from "./buildTimeline";
 import { AlgorithmVideo } from "./AlgorithmVideo";
 import { TimeSeriesVideo } from "./TimeSeriesVideo";
-import type { DsaVideoPlan, TimeSeriesVideoPlan, VideoPlan, VideoType } from "../src/plan/types";
+import { BarRaceVideo } from "./BarRaceVideo";
+import type { BarRaceVideoPlan, DsaVideoPlan, TimeSeriesVideoPlan, VideoPlan, VideoType } from "../src/plan/types";
 import { validateSpec } from "../src/spec/validate";
 import { checkTimeSeriesRender } from "../src/spec/timeSeries/checkRender";
 import { validateTimeSeriesSpec } from "../src/spec/timeSeries/validate";
+import { checkBarRaceRender } from "../src/spec/barRace/checkRender";
+import { validateBarRaceSpec } from "../src/spec/barRace/validate";
 
 export interface PlanValidationResult {
   valid: boolean;
@@ -45,6 +48,16 @@ function validateTimeSeriesPlan(plan: TimeSeriesVideoPlan): PlanValidationResult
   return { valid: errors.length === 0, errors };
 }
 
+// Same shape as validateTimeSeriesPlan: schema/semantic validation first,
+// then the geometry check that needs targetDurationSec.
+function validateBarRacePlan(plan: BarRaceVideoPlan): PlanValidationResult {
+  const shape = validateBarRaceSpec(plan.payload);
+  if (!shape.valid) return shape;
+  const render = checkBarRaceRender(plan.payload, plan.targetDurationSec);
+  const errors = render.failures.filter((f) => f.severity === "error").map((f) => f.message);
+  return { valid: errors.length === 0, errors };
+}
+
 export const VIDEO_TYPES: { [K in VideoType]: VideoTypeDefinition<Extract<VideoPlan, { videoType: K }>> } = {
   dsa: {
     validate: validateDsaPlan,
@@ -55,6 +68,11 @@ export const VIDEO_TYPES: { [K in VideoType]: VideoTypeDefinition<Extract<VideoP
     validate: validateTimeSeriesPlan,
     calculateDurationInFrames: (plan, fps) => Math.round(plan.targetDurationSec * fps),
     render: TimeSeriesVideo,
+  },
+  bar_race: {
+    validate: validateBarRacePlan,
+    calculateDurationInFrames: (plan, fps) => Math.round(plan.targetDurationSec * fps),
+    render: BarRaceVideo,
   },
 };
 

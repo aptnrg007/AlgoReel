@@ -639,3 +639,40 @@ Following the phased plan in `PLAN.md` §9:
   small (7-point, hits the flat 1s floor) and a large (90-point, hits the
   reveal-pacing minimum) dataset, both through real `planVideo` +
   `renderVideo` calls producing real mp4s. 201/201 tests pass.
+
+- **Phase 9, step 2 — `bar_race` as the third video type.** Built via
+  `PLAN.md` §27's recipe exactly: its own spec/validator/checkRender,
+  a pure layout module (continuous step interpolation and ranking, since
+  entities re-rank and change vertical position frame to frame — a
+  genuinely different problem than `time_series`'s point-reveal), a
+  view/composition, a `VIDEO_TYPES` entry, a demo spec, CSV support, and
+  a CLI mirroring `renderTimeSeries.ts`. `selectVideoType.ts` became a
+  real three-way classifier (`dsa`/`time_series`/`bar_race`).
+  `Video.tsx` needed zero changes to add this type — confirmed by
+  `tsc --noEmit` passing untouched, the actual proof the registry
+  generalized rather than just looking like it did.
+
+  Colors are keyed to each entry's fixed position in the spec, never its
+  current rank — confirmed live: China's bar stays the same color across
+  every year even as it climbs from 4th to 2nd place.
+
+  **Two real bugs found live, past clean type-checks and unit tests:**
+  the first render was genuinely correct on the first attempt (entities
+  re-ranking, colors staying put) — but a closer look at a
+  mid-transition frame found a frame labeled "2015" while showing a
+  value that was actually still a blend of 2010's and 2015's real
+  numbers, because the displayed step rounded to the *nearest* whole
+  step while the value was still interpolating from the previous one. A
+  rendered frame asserting a specific year's real number before it's
+  actually reached that number is a correctness bug, not a cosmetic one
+  — exactly what this project's determinism principle exists to prevent.
+  Fixed by keeping the displayed step on the last one whose real values
+  have actually been reached, advancing only once the interpolation
+  arrives exactly. Confirmed live: re-rendering showed the label and the
+  displayed numbers landing on the real 2015 data (18.2k/11.1k) at the
+  exact instant the animation reaches that step, not before.
+
+  Verified live end to end: multiple frames inspected directly (start,
+  two mid-transitions, end), the CSV and JSON CLI paths, and a real
+  three-way classification against actual `qwen3:8b` (not injected
+  deps) all closing the loop to a real rendered mp4. 244/244 tests pass.

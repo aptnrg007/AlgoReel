@@ -147,3 +147,71 @@ test("a duration request that already passes is left untouched, not silently wid
   const plan = await planVideo({ data, targetDurationSec: 20 });
   assert.equal(plan.targetDurationSec, 20);
 });
+
+test("a bar-race request with supplied JSON data produces a BarRaceVideoPlan", async () => {
+  const data = {
+    title: "Largest Economies",
+    xAxis: { label: "Year", values: [1990, 2000] },
+    valueLabel: "GDP (USD billions)",
+    entries: [
+      { name: "USA", values: [5900, 10250] },
+      { name: "China", values: [360, 1210] },
+    ],
+  };
+  const plan = await planVideo({ data, targetDurationSec: 15 });
+  assert.equal(plan.videoType, "bar_race");
+  assert.deepEqual(plan.payload, data);
+  assert.equal(plan.targetDurationSec, 15);
+});
+
+test("a bar-race request with CSV input normalizes it via barRace/fromCsv", async () => {
+  const plan = await planVideo({
+    prompt: "a bar chart race",
+    csv: "year,usa,china\n1990,5900,360\n2000,10250,1210\n",
+    barRaceCsvOptions: { title: "GDP Race", xAxisLabel: "Year", valueLabel: "GDP (USD billions)" },
+  });
+  assert.equal(plan.videoType, "bar_race");
+  if (plan.videoType === "bar_race") {
+    assert.deepEqual(plan.payload.entries, [
+      { name: "usa", values: [5900, 10250] },
+      { name: "china", values: [360, 1210] },
+    ]);
+  }
+});
+
+test("bar-race csv input without barRaceCsvOptions is a clear PlanVideoError, not a crash", async () => {
+  await assert.rejects(
+    () => planVideo({ prompt: "a bar chart race", csv: "year,usa,china\n1990,5900,360\n" }),
+    (err) => {
+      assert.ok(err instanceof PlanVideoError);
+      assert.match(err.message, /barRaceCsvOptions/);
+      return true;
+    },
+  );
+});
+
+test("a bar-race request with no data or csv is a clear PlanVideoError, not a hallucinated dataset", async () => {
+  await assert.rejects(
+    () => planVideo({ prompt: "show the ranking of the biggest tech companies changing" }),
+    (err) => {
+      assert.ok(err instanceof PlanVideoError);
+      assert.match(err.message, /does not fetch external data/);
+      return true;
+    },
+  );
+});
+
+test("a too-short bar-race duration is repaired to the minimum, not rejected", async () => {
+  const data = {
+    title: "x",
+    xAxis: { label: "Year", values: [1990, 2000] },
+    valueLabel: "v",
+    entries: [
+      { name: "A", values: [1, 2] },
+      { name: "B", values: [2, 1] },
+    ],
+  };
+  const plan = await planVideo({ data, targetDurationSec: 0.1 });
+  assert.equal(plan.videoType, "bar_race");
+  assert.ok(plan.targetDurationSec >= 1);
+});

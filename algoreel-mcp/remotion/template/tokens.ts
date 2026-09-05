@@ -16,6 +16,26 @@ export const COLORS = {
   emphasis: "#ff8a65",
 } as const;
 
+// Fixed categorical order (dataviz skill's validated dark palette, checked
+// live against this template's own COLORS.background — see PLAN.md's
+// Phase 8 step 2 writeup) — shared by every video type that needs more
+// than one identity color (TimeSeriesView, BarRaceView, ...), keyed by
+// index i -> CATEGORICAL_COLORS[i % length], never reassigned by rank or
+// value. Lives here rather than duplicated per view specifically because
+// it's a validated design-system constant, not per-video-type business
+// logic — unlike e.g. each video type's own formatValue, which stays
+// duplicated on purpose (PLAN.md §22).
+export const CATEGORICAL_COLORS = [
+  "#3987e5", // blue
+  "#d95926", // orange
+  "#199e70", // aqua
+  "#c98500", // yellow
+  "#d55181", // magenta
+  "#008300", // green
+  "#9085e9", // violet
+  "#e66767", // red
+] as const;
+
 export const FONT_FAMILY =
   "'Helvetica Neue', Inter, Arial, sans-serif";
 

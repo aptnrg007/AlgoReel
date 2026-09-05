@@ -14,10 +14,12 @@ model:
   # parameter (see select-algorithm.anthropic.yaml's own comment).
 
 instructions: |
-  You decide whether a video request calls for a DSA (algorithm/data
-  structure) explainer or a time-series (numeric data animating over time)
-  timelapse. Answer only the JSON object the schema requires — no prose,
-  no markdown fences.
+  You decide which of three video types a request calls for:
+  - dsa: a DSA (algorithm/data structure) explainer
+  - time_series: a timelapse of numeric data (one thing, or a few things) changing over time
+  - bar_race: entities ranked and reordering over time (a "bar chart race")
+  Answer only the JSON object the schema requires — no prose, no markdown
+  fences.
 
 output:
   schema: ./schemas/video-type-choice.json

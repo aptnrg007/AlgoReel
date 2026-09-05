@@ -1,24 +1,10 @@
 import React from "react";
 import type { TimeSeriesSpec } from "../../src/spec/timeSeries/types";
-import { COLORS, TYPE_SCALE } from "../template/tokens";
+import { CATEGORICAL_COLORS, COLORS, TYPE_SCALE } from "../template/tokens";
 import { estimateTextWidth } from "./textBox";
 import { CHART, computeYDomain, formatValue, labelStride, revealedCount, tickIndicesToLabel, xForIndex, yForValue } from "./timeSeriesLayout";
 
 const LABEL_FONT_SIZE = TYPE_SCALE.label * 0.7;
-
-// Fixed categorical order (dataviz skill's validated dark palette, checked
-// live against this template's own COLORS.background) — series[i] always
-// gets SERIES_COLORS[i], never reassigned by rank or value.
-const SERIES_COLORS = [
-  "#3987e5", // blue
-  "#d95926", // orange
-  "#199e70", // aqua
-  "#c98500", // yellow
-  "#d55181", // magenta
-  "#008300", // green
-  "#9085e9", // violet
-  "#e66767", // red
-] as const;
 
 // TimeSeriesSpec + animation progress -> SVG (PLAN.md §8). No React
 // hooks here — TimeSeriesVideo.tsx is the only place progress comes from
@@ -124,7 +110,7 @@ export const TimeSeriesView: React.FC<{ spec: TimeSeriesSpec; progress: number }
 
           {/* series */}
           {spec.series.map((s, si) => {
-            const color = SERIES_COLORS[si % SERIES_COLORS.length]!;
+            const color = CATEGORICAL_COLORS[si % CATEGORICAL_COLORS.length]!;
             const points = s.values.slice(0, revealed).map((v, i) => ({ x: xForIndex(i, n), y: yForValue(v, domain) }));
             const path = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
             const lead = points[points.length - 1];
@@ -168,7 +154,7 @@ export const TimeSeriesView: React.FC<{ spec: TimeSeriesSpec; progress: number }
         <div style={{ display: "flex", gap: 28, flexWrap: "wrap", justifyContent: "center", marginTop: 8, maxWidth: CHART.width }}>
           {spec.series.map((s, i) => (
             <div key={s.name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 16, height: 16, borderRadius: 4, background: SERIES_COLORS[i % SERIES_COLORS.length] }} />
+              <div style={{ width: 16, height: 16, borderRadius: 4, background: CATEGORICAL_COLORS[i % CATEGORICAL_COLORS.length] }} />
               <span style={{ color: COLORS.neutral, fontSize: TYPE_SCALE.label * 0.7, fontWeight: 600 }}>{s.name}</span>
             </div>
           ))}
